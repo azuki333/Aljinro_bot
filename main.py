@@ -20,35 +20,32 @@ async def on_ready():
 
 @client.event
 async def on_message(message): 
-    ### 自分の発言には反応しない
     if message.author == client.user:
         return 
 
-    ### コマンドの処理
     if message.content.startswith('!jinro'):
         ctx = message.content.replace('!jinro', '').strip()
         if not ctx:
-            await message.channel.send("人狼ゲームの指示を入力してください。（例：!jinro ゲームを始めて）")
+            await message.channel.send("人狼ゲームの指示を入力してください。")
             return 
 
         await message.channel.send("🤔 AIが思考中...")
+        loop = asyncio.get_event_loop()
         
-        ### GeminiとChatGPTに裏で同時に考えさせる
+        # --- 【完全分離！】Gemini（緑）の部屋 ---
         try: 
-            ### Gemini A & B としての思考
-            gemini_prompt = f"あなたはDiscordで動くAI人狼ゲームのプレイヤー「Gemini A」と「Gemini B」です。以下のGMの指示や状況に対して、2人分の発言を同時に出力してください。\n指示: {ctx}"
-            
-            loop = asyncio.get_event_loop()
+            gemini_prompt = f"あなたはDiscordで動くAI人狼ゲームのプレイヤー「Gemini A」と「Gemini B」です。2人分の発言を出力してください。\n指示: {ctx}"
             gemini_response = await loop.run_in_executor(
                 None, 
-                lambda: gemini_client.models.generate_content(
-                    model='gemini-3.8-flash',
-                    contents=gemini_prompt,
-                )
+                lambda: gemini_client.models.generate_content(model='gemini-3.8-flash', contents=gemini_prompt)
             )
+            await message.channel.send(f"🟢 **【Gemini軍団からの発言】**\n{gemini_response.text}")
+        except Exception as e:
+            await message.channel.send(f"❌ Gemini軍団エラー: Googleサーバーが混雑中です。") 
 
-            ### ChatGPT A & B としての思考
-            openai_prompt = f"あなたはDiscordで動くAI人狼ゲームのプレイヤー「ChatGPT A」と「ChatGPT B」です。以下のGMの指示や状況に対して、2人分の発言を同時に出力してください。\n指示: {ctx}"
+        # --- 【完全分離！】ChatGPT（青）の部屋 ---
+        try:
+            openai_prompt = f"あなたはDiscordで動くAI人狼ゲームのプレイヤー「ChatGPT A」と「ChatGPT B」です。2人分の発言を出力してください。\n指示: {ctx}"
             openai_response = await loop.run_in_executor(
                 None,
                 lambda: openai_client.chat.completions.create(
@@ -56,18 +53,12 @@ async def on_message(message):
                     messages=[{"role": "user", "content": openai_prompt}]
                 )
             )
-
-            # 結果をDiscordに送信
-            await message.channel.send(f"🟢 **【Gemini軍団からの発言】**\n{gemini_response.text}")
             await message.channel.send(f"🔵 **【ChatGPT軍団からの発言】**\n{openai_response.choices[0].message.content}")
-
         except Exception as e:
-            await message.channel.send(f"❌ エラーが発生しました: {e}") 
+            await message.channel.send(f"❌ ChatGPT軍団エラー: {e}") 
 
 ### Discord Botの起動
 if __name__ == "__main__":
     token = os.getenv("DISCORD_TOKEN")
     if token:
         client.run(token)
-    else:
-        print("エラー: DISCORD_TOKEN が設定されていません。")
