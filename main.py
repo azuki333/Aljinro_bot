@@ -11,7 +11,6 @@ intents.message_content = True
 client = discord.Client(intents=intents) 
 
 ### 2. AIクライアントの初期設定（環境変数からキーを読み込む）
-# Render(Linux環境)での最新ライブラリのバグを回避する設定を追加
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY")) 
 
@@ -39,12 +38,11 @@ async def on_message(message):
             ### Gemini A & B としての思考
             gemini_prompt = f"あなたはDiscordで動くAI人狼ゲームのプレイヤー「Gemini A」と「Gemini B」です。以下のGMの指示や状況に対して、2人分の発言を同時に出力してください。\n指示: {ctx}"
             
-            # 非同期環境（Discord）で最新のGenAIを安全に動かすための設定
             loop = asyncio.get_event_loop()
             gemini_response = await loop.run_in_executor(
                 None, 
                 lambda: gemini_client.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3.8-flash',  # 👈 ここを最新モデルに修正しました！
                     contents=gemini_prompt,
                 )
             )
