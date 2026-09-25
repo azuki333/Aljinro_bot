@@ -32,22 +32,26 @@ async def on_message(message):
             return 
 
         await message.channel.send("🤔 AIが思考中...")
+        loop = asyncio.get_event_loop()
         
-        ### GeminiとChatGPTに裏で同時に考えさせる
+        ### 【修正ポイント】GeminiとChatGPTのエラーを別々に処理する
+        
+        # --- Geminiの処理 ---
         try: 
-            ### Gemini A & B としての思考
             gemini_prompt = f"あなたはDiscordで動くAI人狼ゲームのプレイヤー「Gemini A」と「Gemini B」です。以下のGMの指示や状況に対して、2人分の発言を同時に出力してください。\n指示: {ctx}"
-            
-            loop = asyncio.get_event_loop()
             gemini_response = await loop.run_in_executor(
                 None, 
                 lambda: gemini_client.models.generate_content(
-                    model='gemini-3.8-flash',  # 👈 ここを最新モデルに修正しました！
+                    model='gemini-3.8-flash',
                     contents=gemini_prompt,
                 )
             )
+            await message.channel.send(f"🟢 **【Gemini軍団からの発言】**\n{gemini_response.text}")
+        except Exception as e:
+            await message.channel.send(f"❌ Gemini軍団エラー: Googleサーバーが混雑しています。時間をおいて試してください。") 
 
-            ### ChatGPT A & B としての思考
+        # --- ChatGPTの処理（Geminiがダメでもこちらは必ず動きます！） ---
+        try:
             openai_prompt = f"あなたはDiscordで動くAI人狼ゲームのプレイヤー「ChatGPT A」と「ChatGPT B」です。以下のGMの指示や状況に対して、2人分の発言を同時に出力してください。\n指示: {ctx}"
             openai_response = await loop.run_in_executor(
                 None,
@@ -56,13 +60,9 @@ async def on_message(message):
                     messages=[{"role": "user", "content": openai_prompt}]
                 )
             )
-
-            # 結果をDiscordに送信
-            await message.channel.send(f"🟢 **【Gemini軍団からの発言】**\n{gemini_response.text}")
             await message.channel.send(f"🔵 **【ChatGPT軍団からの発言】**\n{openai_response.choices[0].message.content}")
-
         except Exception as e:
-            await message.channel.send(f"❌ エラーが発生しました: {e}") 
+            await message.channel.send(f"❌ ChatGPT軍団エラー: {e}") 
 
 ### Discord Botの起動
 if __name__ == "__main__":
