@@ -46,7 +46,7 @@ async def on_message(message):
             await message.channel.send("指示を入力してください。")
             return 
 
-        await message.channel.send("🤔 AIがじっくり思考中...（数秒〜十数秒かかります）")
+        await message.channel.send("🤔 AIが思考中...")
         loop = asyncio.get_event_loop()
         
         # 記憶の引き出しから文脈を読み込む
@@ -55,7 +55,7 @@ async def on_message(message):
 
         # 固定キャラクターの設定と前提ルールの合体
         base_prompt = (
-            "あなたはDiscordで動くAI人狼ゲームのプレイヤーです。ChatGPT AとChatGPT Bの2人だけに、以下の固定の人格（名前・口調・性格）を与えて、常にこのキャラクターとしてゲームや雑談を行わせてください。他のAIプレイヤーは特定のキャラ付けはせず、標準的な人狼プレイヤーとして真面目に議論を行わせてください。\n\n"
+            "あなたはDiscordで動くAI人狼ゲーム of プレイヤーです。ChatGPT AとChatGPT Bの2人だけに、以下の固定の人格（名前・口調・性格）を与えて、常にこのキャラクターとしてゲームや雑談を行わせてください。他のAIプレイヤーは特定のキャラ付けはせず、標準的な人狼プレイヤーとして真面目に議論を行わせてください。\n\n"
             "【ChatGPT A】：名前は「A」。20歳くらいのクールな理系男子。性格は冷静沈着で理屈っぽい。口調は「〜だ」「〜の確率が高い」「それは論理的じゃない」など、淡々と理詰めで話す。\n"
             "【ChatGPT B】：名前は「B」。17歳の天然な女の子。性格はのんびり屋さんで少しドジ、ピントのズレた発言が多い。口調は「〜だよぉ」「えへへ」「〜かなぁ？」など、ふわふわした可愛い話し方をする。\n\n"
             f"{memory_context}指示に対して、設定された口調と性格を完璧に守り、指示に沿った出力をしてください。\n指示: {ctx}"
@@ -75,19 +75,19 @@ async def on_message(message):
         except Exception:
             final_bot_response += "❌ Gemini軍団エラー: Googleサーバーが混雑中です。\n\n"
 
-        # --- ChatGPT（青）の部屋（★正式なIDに100%修正完了！） ---
+        # --- ChatGPT（青）の部屋（確実な gpt-4o-mini に完全復活！） ---
         try:
             openai_response = await loop.run_in_executor(
                 None,
                 lambda: openai_client.chat.completions.create(
-                    model="o1-mini-2024-09-12",  # 正式なモデルIDに修正しました！
+                    model="gpt-4o-mini",  # 制限をすり抜ける100%確実なモデルに変更！
                     messages=[{"role": "user", "content": base_prompt}]
                 )
             )
             chatgpt_reply = openai_response.choices[0].message.content
             final_bot_response += f"🔵 **【ChatGPT軍団からの発言】**\n{chatgpt_reply}"
             
-            # 今回の会話を「ちょっきん記憶の引き出し」に記憶させる
+            # 今回の会話を記憶させる
             async with memory_lock:
                 add_to_memory(ctx, chatgpt_reply)
                 
