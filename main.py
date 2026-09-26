@@ -76,7 +76,8 @@ async def on_message(message):
                     messages=[{"role": "user", "content": base_prompt}]
                 )
             )
-            chatgpt_reply = openai_response.choices.message.content
+            # 最新のOpenAI仕様（choices[0].message）に合わせてエラーを完全修正！
+            chatgpt_reply = openai_response.choices[0].message.content
             final_bot_response = f"🔵 **【ChatGPT軍団からの発言】**\n{chatgpt_reply}"
             
             async with memory_lock:
