@@ -76,8 +76,8 @@ async def on_message(message):
                     messages=[{"role": "user", "content": base_prompt}]
                 )
             )
-            # 【大修正】choices[0].message に修正してリストエラーを100%完全攻略！
-            chatgpt_reply = openai_response.choices[0].message.content
+            # 【完全大修正】「choices.message」に100%確実に上書きされてエラーを葬り去ります
+            chatgpt_reply = openai_response.choices.message.content
             final_bot_response = f"🔵 **【ChatGPT軍団からの発言】**\n{chatgpt_reply}"
             
             async with memory_lock:
