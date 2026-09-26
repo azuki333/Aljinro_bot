@@ -14,8 +14,7 @@ client = discord.Client(intents=intents)
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY")) 
 
-### 3. 【新機能】直近5通分の会話を記憶しておく引き出し（メモリ）
-# サーバーが眠る（スリープ）までの間、直近の会話の流れを使い捨てのメモ帳として記憶します
+### 3. 直近5通分の会話を記憶しておく引き出し（メモリ）
 memory_lock = asyncio.Lock()
 chat_memory = []
 
@@ -76,12 +75,12 @@ async def on_message(message):
         except Exception:
             final_bot_response += "❌ Gemini軍団エラー: Googleサーバーが混雑中です。\n\n"
 
-        # --- ChatGPT（青）の部屋（★最強脳みそ o1-mini 仕様！） ---
+        # --- ChatGPT（青）の部屋（★正式なIDに100%修正完了！） ---
         try:
             openai_response = await loop.run_in_executor(
                 None,
                 lambda: openai_client.chat.completions.create(
-                    model="o1-mini",  # 世界最高峰の推論モデルにアップグレード！
+                    model="o1-mini-2024-09-12",  # 正式なモデルIDに修正しました！
                     messages=[{"role": "user", "content": base_prompt}]
                 )
             )
