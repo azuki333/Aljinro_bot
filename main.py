@@ -12,7 +12,7 @@ from game_logic import (
     AI_CHARACTERS, ROLE_EMOJIS, game, send_split_message, 
     call_llm, start_5min_timer, RoleCountSelectView, 
     setup_game, process_night_phase, generate_ai_discussion, 
-    start_voting_phase, Tally_and_finish
+    start_voting_phase, Tally_and_finish, reset_game_state
 )
 
 # --- Discord Client 設定 ---
@@ -100,12 +100,7 @@ async def on_message(message):
             sub = parts[0].lower() if len(parts) > 0 else ""
 
             if sub in ['clear', 'リセット']:
-                if game["discussion_task"]:
-                    game["discussion_task"].cancel()
-                game = {
-                    "is_running": False, "mode": None, "phase": "idle", "channel": None, "players": {}, "center_cards": [], "votes": {}, "hunter_targets": {}, "witch_targets": {}, "turn_count": 0, "discussion_task": None, "history": [],
-                    "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0}
-                }
+                reset_game_state()
                 await message.reply('🔄 リセットしました！')
                 return
 
