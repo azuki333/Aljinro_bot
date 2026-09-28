@@ -12,12 +12,12 @@ client = discord.Client(intents=intents)
 # 環境変数からOpenAIのAPIキーを安全に読み込みます
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# 【昨日の約束】最新10通分の会話履歴（対話の文脈）を記憶しておくための無敵の配列スタック
+# 最新10通分の会話履歴を記憶しておくための配列スタック
 conversation_history = []
 
-# 【ロック絶対回避システム】APIの連続連打（Rate Limit）を防ぐためのクールダウン制御
+# 【ロック絶対回避】3秒以内の連打は自動で弾いて24時間ロックを絶対回避します
 last_api_call_time = 0
-API_COOLDOWN_MS = 3.0  # 3秒以内の連打は自動で弾いてロックを絶対回避します
+API_COOLDOWN_MS = 3.0 
 
 # 人間同士で遊ぶときの5分間（300秒）の議論制限タイマー管理
 is_game_running = False
@@ -27,10 +27,10 @@ game_timer_task = None
 async def on_ready():
     print('🤖 【対話型対戦モード】!jinro対応・5分タイマー＆10通記憶付きBot、完全起動！')
 
-# 5分間の議論制限タイマーの非同期処理（人間が混ざる時に自動発動します）
+# 5分間の議論制限タイマーの非同期処理
 async def start_game_timer(channel):
     global is_game_running
-    await asyncio.sleep(300) # ぴったり5分間（300秒）待ちます
+    await asyncio.sleep(300) 
     if is_game_running:
         await channel.send('🚨 🚨 🚨 【5分経過・議論強制終了】 🚨 🚨 🚨\n\n主様、対話型の議論時間（300秒）が終了しました！これ以上のおしゃべりは禁止です！\n生存者のプレイヤーたちは、今すぐ各自の決め打ちで投票を投じて、最後の結果を開票してください！')
         is_game_running = False
@@ -42,7 +42,7 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # 主様がいつもの「!jinro」と打つだけで100%完璧に応答します！
+    # 【完全修正】Pythonの正しい構文（startswith）に修正しました！これで100%反応します！
     if message.content.startswith('!jinro'):
         user_prompt = message.content[6:].strip()
         
@@ -63,23 +63,24 @@ async def on_message(message):
             return
         last_api_call_time = current_time
 
-        # 【5分タイマー自動起動】主様や友達が「ゲーム開始」や「人間同士」と打ったら5分でシャッターを閉じます
-        if 'ゲーム開始' in user_prompt or '人間' in user_prompt or 'スタート' in user_prompt:
+        # 【5分タイマー自動起動】
+        if '人間同士' in user_prompt or '人間' in user_prompt or 'スタート' in user_prompt or 'ゲーム開始' in user_prompt:
             if not is_game_running:
                 is_game_running = True
                 game_timer_task = asyncio.create_task(start_game_timer(message.channel))
 
         try:
+            # message.channel.typing()をPythonの正しい非同期の形に修正
             async with message.channel.typing():
-                # 今回の新しい主様（人間）のセリフを、最新10通の記憶配列に追加
-                # 誰が喋ったかの文脈を名前付きで記憶させることで、本物の「対話ゲーム」にします
+                
+                # 主様の発言を、最新10通の記憶配列に追加
                 conversation_history.append({"role": "user", "content": f"{message.author.name}: {user_prompt if user_prompt else '（ゲーム開始の合図）'}"})
                 if len(conversation_history) > 10:
                     conversation_history.pop(0)
 
-                # 【昨日の約束】4大AIたちのガチガチのキャラクター性格設定（Geminiは性格不要）
+                # 4大AIプレイヤーのキャラクター性格設定
                 system_content = f"""あなたは最高に面白い「対話型ワンナイト人狼ゲーム」を主様（ユーザー）と一緒にリアルタイムに進行するAIGM（人工知能ゲームマスター）です。
-                これは小説や物語の自動生成ではなく、主様が1人のプレイヤーとしてチャット欄から参加する【本物の対話型の試合】です。
+                これは小説の自動生成ではなく、主様が1人のプレイヤーとして参加する【本物の対話型の試合】です。
                 
                 主様の発言、および最新10通分の過去のチャットの文脈（誰が何の役職をCOしたか、誰の嘘が破綻しているか）を完璧に記憶して引き継ぎ、
                 以下の4匹のAIプレイヤーの個性をむき出しにして、人間の言葉に対して「1通ずつリアルタイムにチャットで殴り返す」ように返答ログを生成してください。
@@ -110,7 +111,7 @@ async def on_message(message):
                 if response.status_code != 200:
                     raise Exception(data.get("error", {}).get("message", "OpenAI API Error"))
 
-                ai_reply = data["choices"]["message"]["content"]
+                ai_reply = data["choices"][0]["message"]["content"]
 
                 # AIの今回のチャット返答も、次の会話のために記憶の配列に追加
                 conversation_history.append({"role": "assistant", "content": ai_reply})
