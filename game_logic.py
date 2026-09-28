@@ -61,6 +61,36 @@ game = {
     }
 }
 
+def reset_game_state():
+    global game
+    if game["discussion_task"]:
+        game["discussion_task"].cancel()
+    game.clear()
+    game.update({
+        "is_running": False,
+        "mode": None,
+        "phase": "idle",
+        "channel": None,
+        "players": {},
+        "center_cards": [],
+        "votes": {},
+        "hunter_targets": {},
+        "witch_targets": {},
+        "turn_count": 0,
+        "discussion_task": None,
+        "history": [],
+        "selected_roles": {
+            "人狼": 2,
+            "市民": 3,
+            "占い師": 1,
+            "怪盗": 1,
+            "狩人": 0,
+            "てるてる": 0,
+            "魔女っ子": 0,
+            "狂人": 0
+        }
+    })
+
 async def send_split_message(channel, content):
     if not content or not channel:
         return
