@@ -1,5 +1,4 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const axios = require('axios');
 
 const client = new Client({
     intents: [
@@ -24,7 +23,7 @@ let gameTimer = null;
 let isGameRunning = false;
 
 client.once('ready', () => {
-    console.log('🤖 一昨日の約束の完全体（!jinro対応・5分タイマー＆10通記憶）Bot、完全起動！');
+    console.log('🤖 昨日の約束の完全体（!jinro対応・5分タイマー＆10通記憶）Bot、完全起動！');
 });
 
 client.on('messageCreate', async (message) => {
@@ -77,10 +76,10 @@ client.on('messageCreate', async (message) => {
             conversationHistory.push({ role: 'user', content: `${message.author.username}: ${userPrompt}` });
             if (conversationHistory.length > 10) conversationHistory.shift();
 
-            // 一昨日のガチガチのキャラクター性格設定
+            // 20代クール男子と17歳天然女子のキャラクター性格設定
             const systemContent = `あなたは最高に面白い「ワンナイト人狼」の対話ログを生成、および進行を行うAIGM（人工知能ゲームマスター）です。
             人間のプレイヤー（${message.author.username}）の発言や最新10通の文脈を完璧に引き継ぎ、以下の個性をむき出しにして、人間らしい泥臭いパッション（ハッタリ、自白、ブーメランカウンター）のチャットログを生成してください。
-            最大5ターン（または人間同士なら制限時間5分）で議論が綺麗に詰むように、会話をどんどん白熱させていくこと。プレイヤーが合計5人になるように数合わせを行して発言を出力してください。暴言は1文字も禁止です。
+            最大5ターン（または人間同士なら制限時間5分）で議論が綺麗に詰むように、会話をどんどん白熱させていくこと。プレイヤーが合計5人になるように数合わせを行って発言を出力してください。暴言は1文字も禁止です。
             
             【参戦する4大AIプレイヤーの設定】
             1. ChatGPT-A（OpenAIの刺客・20代クール男子）：
@@ -90,18 +89,27 @@ client.on('messageCreate', async (message) => {
             3. ChatGPT-C（性格なし）：ロジックと確率をもとにフラットに発言する。
             4. ChatGPT-D（性格なし）：ロジックと確率をもとにフラットに発言する。`;
 
-            // 一昨日の最も安定していたOpenAIの通信構文
-            const response = await axios.post(
-                'https://openai.com',
-                {
+            // 【完全エラー回避】外部ライブラリを一切使わない、標準の最安定通信方式
+            const response = await fetch('https://openai.com', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
                     model: 'gpt-4o-mini',
                     messages: [{ role: 'system', content: systemContent }, ...conversationHistory],
                     temperature: 0.85
-                },
-                { headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' } }
-            );
+                })
+            });
+
+            const data = await response.json();
             
-            const aiReply = response.data.choices.message.content;
+            if (!response.ok) {
+                throw new Error(data.error ? data.error.message : 'OpenAI API Error');
+            }
+
+            const aiReply = data.choices[0].message.content;
 
             // AIの今回の返答も、次の会話のために記憶の配列に追加
             conversationHistory.push({ role: 'assistant', content: aiReply });
