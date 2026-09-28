@@ -10,9 +10,9 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# 環境変数から各種APIキーを読み込み
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# 環境変数からAPIキーを読み込み（.strip()で前後の余計な空白を自動削除）
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
 conversation_history = []
 last_api_call_time = 0
@@ -26,10 +26,9 @@ game_state = {
 
 game_timer_task = None
 
-# ブラウザのフリをするためのヘッダー情報（これで門番を回避します）
 HTTP_HEADERS = {
     "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
 @client.event
@@ -53,7 +52,7 @@ async def on_message(message):
     if message.content.startswith('!jinro'):
         user_prompt = message.content[6:].strip()
         
-        if user_prompt == 'clear' or user_prompt == 'リセット':
+        if user_prompt in ['clear', 'リセット']:
             conversation_history = []
             game_state = {"is_running": False, "mode": "turn", "turn_count": 0}
             if game_timer_task:
@@ -89,22 +88,25 @@ async def on_message(message):
 
         try:
             async with message.channel.typing():
-                conversation_history.append({"role": "user", "content": f"{message.author.name}: {user_prompt if user_prompt else '（ゲーム開始の合図）'}"})
+                # 会話履歴の更新
+                input_text = user_prompt if user_prompt else '（ゲーム開始の合図）'
+                conversation_history.append({"role": "user", "content": f"{message.author.name}: {input_text}"})
                 if len(conversation_history) > 10:
                     conversation_history.pop(0)
 
                 current_mode_text = f"【現在の議論ターン数: {game_state['turn_count']} / 5 ターン】" if game_state["mode"] == "turn" else "【人間同士の5分間時間制限バトル中】"
                 
-                system_content = f"""あなたは最高に面白い「対話型ワンナイト人狼ゲーム」を主様と一緒にリアルタイムに進行する AIGM です。
-                人間のプレイヤー（{message.author.name}）の発言や最新10通の文脈を完璧に記憶して引き継ぎ、以下の4匹のAIプレイヤーの個性をむき出しにして、リアルタイムにチャット発言を生成してください。
-                最大5ターン（または人間同士なら制限時間5分）で議論が綺麗に詰むように、会話を白熱させていくこと。
-                {current_mode_text}
-                
-                【参戦する4大AIプレイヤーの設定】
-                1. ChatGPT-A（20代クール男子：レン）：冷静沈着、理路整然としたロジック。
-                2. ChatGPT-B（17歳の女の子：ユイ）：おっとり天然な女子高生。突拍子もない一言。
-                3. Gemini-A（Googleの刺客・性格なし）：ロジックと確率をもとにフラットに発言する。
-                4. Gemini-B（Googleの刺客・性格なし）：ロジックと確率をもとにフラットに発言する。"""
+                system_content = f"""あなたは「対話型ワンナイト人狼ゲーム」を進行する AIGM です。日本語で応答してください。
+人間のプレイヤー（{message.author.name}）の発言を受け、以下の4匹のAIプレイヤーになりきって会話（議論）を展開してください。
+
+【参戦する4大AIプレイヤーの設定】
+1. ChatGPT-A（20代クール男子：レン）：冷静沈着、理路整然としたロジック。
+2. ChatGPT-B（17歳の女の子：ユイ）：おっとり天然な女子高生。
+3. Gemini-A（Googleの刺客）：確率やロジック重視。
+4. Gemini-B（Googleの刺客）：確率やロジック重視。
+
+{current_mode_text}
+それぞれのキャラクターの名前を付けて発言文を作成してください。"""
 
                 ai_reply = ""
                 gemini_failed = False
@@ -113,8 +115,10 @@ async def on_message(message):
                 if GEMINI_API_KEY:
                     try:
                         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                        
+                        prompt_text = f"{system_content}\n\n【最新メッセージ】\n{message.author.name}: {input_text}"
                         gemini_payload = {
-                            "contents": [{"parts": [{"text": system_content + "\n\n【会話履歴】\n" + json.dumps(conversation_history, ensure_ascii=False)}]}]
+                            "contents": [{"parts": [{"text": prompt_text}]}]
                         }
                         gemini_req = urllib.request.Request(
                             gemini_url,
@@ -128,16 +132,17 @@ async def on_message(message):
                                 ai_reply = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
                             else:
                                 gemini_failed = True
-                    except:
+                    except Exception as e:
                         gemini_failed = True
 
-                # 2. OpenAI API呼び出し（Gemini失敗時のバックアップ）
-                if not ai_reply:
+                # 2. OpenAI API呼び出し（バックアップ）
+                if not ai_reply and OPENAI_API_KEY:
                     openai_url = "https://api.openai.com/v1/chat/completions"
+                    messages_payload = [{"role": "system", "content": system_content}] + conversation_history
                     openai_payload = {
                         "model": "gpt-4o-mini",
-                        "messages": [{"role": "system", "content": system_content}] + conversation_history,
-                        "temperature": 0.85
+                        "messages": messages_payload,
+                        "temperature": 0.7
                     }
                     openai_headers = HTTP_HEADERS.copy()
                     openai_headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
@@ -152,6 +157,9 @@ async def on_message(message):
                         openai_data = json.loads(openai_res.read().decode('utf-8'))
                         ai_reply = openai_data["choices"][0]["message"]["content"]
 
+                if not ai_reply:
+                    ai_reply = "⚠️ AIからの応答が得られませんでした。APIキーを確認してください。"
+
                 conversation_history.append({"role": "assistant", "content": ai_reply})
                 if len(conversation_history) > 10:
                     conversation_history.pop(0)
@@ -162,9 +170,6 @@ async def on_message(message):
 
                 await message.reply(ai_reply)
 
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode('utf-8', errors='ignore')
-            await message.reply(f'⚠️ [HTTP Error {e.code}] 門番に拒否されました。中身: {err_body[:80]}')
         except Exception as error:
             await message.reply(f'⚠️ [System Error] エラーが発生しました: {error}')
 
