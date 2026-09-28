@@ -45,6 +45,7 @@ game = {
     "center_cards": [],
     "votes": {},
     "hunter_targets": {},
+    "witch_targets": {},
     "turn_count": 0,
     "discussion_task": None,
     "history": [],
@@ -269,6 +270,7 @@ async def setup_game(channel, mode, human_users=None):
     game["players"] = {}
     game["votes"] = {}
     game["hunter_targets"] = {}
+    game["witch_targets"] = {}
     game["turn_count"] = 0
     game["history"] = []
 
@@ -352,6 +354,7 @@ async def process_night_phase():
                 p["ai_knows"] = f"{t} を道連れ指定しました。"
             elif p["role"] == "魔女っ子":
                 t = random.choice([n for n in game["players"].keys() if n != name])
+                game["witch_targets"][name] = t
                 p["ai_knows"] = f"{t} の役職は『{game['players'][t]['role']}』でした。"
             else:
                 p["ai_knows"] = "平穏な夜でした。"
