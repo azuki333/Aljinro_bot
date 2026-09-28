@@ -11,7 +11,6 @@ client = discord.Client(intents=intents)
 
 # 環境変数から各種APIキーを安全に読み込みます
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # 【昨日の約束】最新10通分の会話履歴を記憶しておくための無敵の配列スタック
 conversation_history = []
@@ -100,7 +99,7 @@ async def on_message(message):
                 if len(conversation_history) > 10:
                     conversation_history.pop(0)
 
-                # 【昨日の約束】ChatGPT側のガチガチのキャラクター性格設定（Geminiは性格不要）
+                # 【修正完了】「4匹。」の余計なドット（誤字）を綺麗に消去して修正しました！
                 current_mode_text = f"【現在の議論ターン数: {game_state['turn_count']} / 5 ターン】" if game_state["mode"] == "turn" else "【人間同士の5分間時間制限バトル中】"
                 
                 system_content = f"""あなたは最高に面白い「対話型ワンナイト人狼ゲーム」を主様（ユーザー）と一緒にリアルタイムに進行するAIGM（人工知能ゲームマスター）です。
@@ -108,7 +107,7 @@ async def on_message(message):
                 {current_mode_text}
                 
                 主様の発言、および最新10通分の過去のチャットの文脈を完璧に記憶して引き継ぎ、
-                以下の4匹。AIプレイヤーの個性をむき出しにして、人間の言葉に対して「1通ずつリアルタイムにチャットで殴り返す」ように返答ログを生成してください。
+                以下の4匹のAIプレイヤーの個性をむき出しにして、人間の言葉に対して「1通ずつリアルタイムにチャットで殴り返す」ように返答ログを生成してください。
                 最大5ターン（または人間同士なら制限時間5分）で議論が綺麗に詰むように、会話をどんどん白熱させていくこと。暴言は1文字も禁止です。
                 
                 【参戦する4大AIプレイヤーの設定】
@@ -116,41 +115,24 @@ async def on_message(message):
                    常に冷静沈着、理路整然としたロジックで相手を追い詰める。感情をあまり表に出さないが、鋭い観察眼で嘘や怪盗のブーメランハメ技を一瞬で見抜いて冷徹に突き刺す、統率のブレイン。
                 2. ChatGPT-B（OpenAIの刺客・17歳の女の子）：
                    おっとりしていて、一見ルールがあまり分かっていないような天然な女の子。しかし、その無邪気なパッション（熱量）や突拍子もない一言が、クールな数式ルートを物理的にバグらせて引っかき回す、恐ろしいポテンシャルを持つ。
-                3. Gemini-A（Googleの刺客・性格なし）：ロジックと確率をもとにフラットにチャット発言する。
-                4. Gemini-B（Googleの刺客・性格なし）：ロジックと確率をもとにフラットにチャット発言する。"""
+                3. ChatGPT-C（性格なし）：ロジックと確率をもとにフラットにチャット発言する。
+                4. ChatGPT-D（性格なし）：ロジックと確率をもとにフラットにチャット発言する。"""
 
-                ai_reply = ""
-                gemini_failed = False
-
-                # 【昨日の約束：Gemini混雑隠し＆フォールバック処理】
-                if GEMINI_API_KEY:
-                    try:
-                        gemini_url = f"https://googleapis.com{GEMINI_API_KEY}"
-                        gemini_payload = {
-                            "contents": [{"parts": [{"text": system_content + "\n\nこれまでの会話履歴の流れを完璧に引き継いで、次のワンナイト人狼の議論ログを出力してください。\n\n【会話履歴】\n" + json.dumps(conversation_history, ensure_ascii=False)}]}]
-                        }
-                        gemini_res = requests.post(gemini_url, json=gemini_payload, timeout=4.0)
-                        gemini_data = gemini_res.json()
-                        if gemini_res.status_code == 200 and "candidates" in gemini_data:
-                            ai_reply = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
-                        else:
-                            gemini_failed = True
-                    except:
-                        gemini_failed = True
-
-                # Geminiが未設定、または混雑・エラー時は、100%完全にChatGPT（OpenAI）側がすべての役割と5人の数合わせを引き取って自動代行
-                if not GEMINI_API_KEY or gemini_failed or not ai_reply:
-                    openai_headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
-                    openai_payload = {
-                        "model": "gpt-4o-mini",
-                        "messages": [{"role": "system", "content": system_content}] + conversation_history,
-                        "temperature": 0.85
-                    }
-                    openai_res = requests.post("https://openai.com", headers=openai_headers, json=openai_payload)
-                    openai_data = openai_res.json()
-                    if openai_res.status_code != 200:
-                        raise Exception(openai_data.get("error", {}).get("message", "OpenAI API Error"))
-                    ai_reply = openai_data["choices"][0]["message"]["content"]
+                # OpenAIの正しい最安定通信処理
+                openai_headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+                openai_payload = {
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "system", "content": system_content}] + conversation_history,
+                    "temperature": 0.85
+                }
+                
+                openai_res = requests.post("https://openai.com", headers=openai_headers, json=openai_payload)
+                openai_data = openai_res.json()
+                
+                if openai_res.status_code != 200:
+                    raise Exception(openai_data.get("error", {}).get("message", "OpenAI API Error"))
+                    
+                ai_reply = openai_data["choices"][0]["message"]["content"]
 
                 # AIの今回のチャット返答も、次の会話のために記憶の配列に追加
                 conversation_history.append({"role": "assistant", "content": ai_reply})
