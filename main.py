@@ -14,10 +14,10 @@ client = discord.Client(intents=intents)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# 最新10通分の会話履歴を記憶しておくための無敵の配列スタック
+# 最新10通分の会話履歴を記憶しておくためのスタック
 conversation_history = []
 
-# 【ロック絶対回避】3秒以内の連打は自動で弾いて24時間ロックを絶対回避します
+# 連打防止用
 last_api_call_time = 0
 API_COOLDOWN_MS = 3.0 
 
@@ -25,7 +25,7 @@ API_COOLDOWN_MS = 3.0
 game_state = {
     "is_running": False,
     "mode": "turn",       # "turn"（5ターン制）か "time"（5分タイマー制）
-    "turn_count": 0       # 現在のターン数（AI対戦用）
+    "turn_count": 0       # 現在のターン数
 }
 
 game_timer_task = None
@@ -49,11 +49,11 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # 主様がいつもの「!jinro」と打つだけで100%完璧に応答します！
+    # コマンド判定
     if message.content.startswith('!jinro'):
         user_prompt = message.content[6:].strip()
         
-        # コマンド !jinro リセット が送られたらリセット
+        # リセット処理
         if user_prompt == 'clear' or user_prompt == 'リセット':
             conversation_history = []
             game_state = {"is_running": False, "mode": "turn", "turn_count": 0}
@@ -63,7 +63,7 @@ async def on_message(message):
             await message.reply('🔄 秘密基地の記憶と進行中のゲームを完全にリセットしたよ！')
             return
 
-        # 【ロック絶対回避チェック】
+        # 連打チェック
         current_time = time.time()
         if current_time - last_api_call_time < API_COOLDOWN_MS:
             await message.reply('⚠️ 主様、落ち着いて！3秒だけおいてからもう一度送っておくれ！')
@@ -83,7 +83,7 @@ async def on_message(message):
                 game_state["mode"] = "turn"
                 game_state["turn_count"] = 0
 
-        # 【5ターン制のカウントチェック】
+        # 5ターン制のカウントチェック
         if game_state["is_running"] and game_state["mode"] == "turn":
             game_state["turn_count"] += 1
             if game_state["turn_count"] > 5:
@@ -113,10 +113,10 @@ async def on_message(message):
                 ai_reply = ""
                 gemini_failed = False
 
-                # 【本物の約束】Gemini（規制なし）を最優先で呼び出します！
+                # Gemini API呼び出し (修正箇所)
                 if GEMINI_API_KEY:
                     try:
-                        gemini_url = f"https://googleapis.com{GEMINI_API_KEY}"
+                        gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
                         gemini_payload = {
                             "contents": [{"parts": [{"text": system_content + "\n\n【会話履歴】\n" + json.dumps(conversation_history, ensure_ascii=False)}]}]
                         }
@@ -126,25 +126,26 @@ async def on_message(message):
                             headers={"Content-Type": "application/json"},
                             method="POST"
                         )
-                        with urllib.request.urlopen(gemini_req, timeout=4.0) as gemini_res:
+                        with urllib.request.urlopen(gemini_req, timeout=8.0) as gemini_res:
                             gemini_data = json.loads(gemini_res.read().decode('utf-8'))
                             if "candidates" in gemini_data:
                                 ai_reply = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
                             else:
                                 gemini_failed = True
-                    except:
+                    except Exception as e:
+                        print(f"Gemini API Error: {e}")
                         gemini_failed = True
 
-                # Geminiが未設定、または混雑・通信エラーで出て来られない時は、
-                # OpenAI（4.97ドル入り）がバックアップとして自動でステルス代行（数合わせ）します！
+                # OpenAI API呼び出し (バックアップ) (修正箇所)
                 if not GEMINI_API_KEY or gemini_failed or not ai_reply:
+                    openai_url = "https://api.openai.com/v1/chat/completions"
                     openai_payload = {
                         "model": "gpt-4o-mini",
                         "messages": [{"role": "system", "content": system_content}] + conversation_history,
                         "temperature": 0.85
                     }
                     openai_req = urllib.request.Request(
-                        "https://openai.com",
+                        openai_url,
                         data=json.dumps(openai_payload).encode('utf-8'),
                         headers={
                             "Authorization": f"Bearer {OPENAI_API_KEY}",
@@ -152,7 +153,7 @@ async def on_message(message):
                         },
                         method="POST"
                     )
-                    with urllib.request.urlopen(openai_req, timeout=5.0) as openai_res:
+                    with urllib.request.urlopen(openai_req, timeout=8.0) as openai_res:
                         openai_data = json.loads(openai_res.read().decode('utf-8'))
                         ai_reply = openai_data["choices"][0]["message"]["content"]
 
@@ -168,10 +169,9 @@ async def on_message(message):
 
         except urllib.error.HTTPError as e:
             err_body = e.read().decode('utf-8', errors='ignore')
-            await message.reply(f'⚠️ [HTTP Error {e.code}] 門番に拒否されました。中身: {err_body[:80]}')
+            await message.reply(f'⚠️ [HTTP Error {e.code}] API接続エラー。内容: {err_body[:100]}')
         except Exception as error:
-            await message.reply(f'⚠️ [System Error] OpenAI API Connection Failed. Reason: {error}')
+            await message.reply(f'⚠️ [System Error] エラーが発生しました: {error}')
 
-# Botをログインさせます
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 client.run(DISCORD_TOKEN)
