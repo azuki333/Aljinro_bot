@@ -10,6 +10,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
+# 環境変数の読み込みと前後の余白削除
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
@@ -32,13 +33,13 @@ HTTP_HEADERS = {
 
 @client.event
 async def on_ready():
-    print('🤖 【完全体】ワンナイトBot、起動成功！')
+    print('🤖 Bot起動完了')
 
 async def start_game_timer(channel):
     global game_state
     await asyncio.sleep(300) 
     if game_state["is_running"] and game_state["mode"] == "time":
-        await channel.send('🚨 🚨 🚨 【5分経過・議論強制終了】 🚨 🚨 🚨\n\n主様、人間同士の極限の議論時間（300秒）が終了しました！これ以上のおしゃべりは禁止です！')
+        await channel.send('🚨 【5分経過・議論強制終了】 🚨')
         game_state["is_running"] = False
 
 @client.event
@@ -57,105 +58,63 @@ async def on_message(message):
             if game_timer_task:
                 game_timer_task.cancel()
                 game_timer_task = None
-            await message.reply('🔄 秘密基地の記憶と進行中のゲームを完全にリセットしたよ！')
+            await message.reply('🔄 リセット成功しました！')
             return
 
         current_time = time.time()
         if current_time - last_api_call_time < API_COOLDOWN_MS:
-            await message.reply('⚠️ 主様、落ち着いて！3秒だけおいてからもう一度送っておくれ！')
+            await message.reply('⚠️ 3秒待ってください！')
             return
         last_api_call_time = current_time
 
-        if 'ゲーム開始' in user_prompt or 'スタート' in user_prompt or '対戦開始' in user_prompt:
-            game_state["is_running"] = True
-            conversation_history = []
-            if '人間同士' in user_prompt or '友達' in user_prompt:
-                game_state["mode"] = "time"
-                game_state["turn_count"] = 0
-                if game_timer_task: game_timer_task.cancel()
-                game_timer_task = asyncio.create_task(start_game_timer(message.channel))
-            else:
-                game_state["mode"] = "turn"
-                game_state["turn_count"] = 0
-
-        if game_state["is_running"] and game_state["mode"] == "turn":
-            game_state["turn_count"] += 1
-            if game_state["turn_count"] > 5:
-                await message.reply('🗳️ 【5ターン制限終了】議論数は終了したよ！今すぐ各自の投票を行ってください！')
-                game_state["is_running"] = False
-                return
-
         try:
             async with message.channel.typing():
-                input_text = user_prompt if user_prompt else 'ゲーム開始！全員自己紹介して議論を始めてください！'
-                current_mode_text = f"【現在の議論ターン数: {game_state['turn_count']} / 5 ターン】" if game_state["mode"] == "turn" else "【人間同士の5分間時間制限バトル中】"
-                
-                history_text = ""
-                for h in conversation_history[-4:]:
-                    history_text += f"{h['speaker']}: {h['text']}\n"
+                # キーの読み込みチェック
+                gemini_key_exists = len(GEMINI_API_KEY) > 0
+                openai_key_exists = len(OPENAI_API_KEY) > 0
 
-                # プロンプトの構造を「純粋なユーザー命令」として1つに統合
-                prompt_content = f"""[絶対命令]
-あなたは「対話型ワンナイト人狼ゲーム」のゲームマスターです。英語の挨拶（Hello等）は絶対に禁止します。日本語のみで回答してください。
+                # APIキーがどちらもセットされていない場合の即時警告
+                if not gemini_key_exists and not openai_key_exists:
+                    await message.reply('❌ 【エラー】GEMINI_API_KEY も OPENAI_API_KEY も環境変数に設定されていません！サーバーのEnvironment Variablesを確認してください。')
+                    return
 
-以下の4人のプレイヤー（レン、ユイ、Gemini-A、Gemini-B）になりきり、{message.author.name}の発言を受けて、4人が順番に人狼ゲームの議論をしている会話文を作成してください。
-
-{current_mode_text}
-
-【プレイヤー設定】
-1. レン（20代男子）：冷静、論理的
-2. ユイ（17歳女子高生）：直感重視、天然
-3. Gemini-A：確率重視、淡々と話す
-4. Gemini-B：人間観察、疑い深い
-
-【直近の会話】
-{history_text}
-
-【今回のプレイヤー発言】
-{message.author.name}: {input_text}
-
-【出力形式】
-レン: 「...」
-ユイ: 「...」
-Gemini-A: 「...」
-Gemini-B: 「...」"""
+                prompt_content = f"あなたは対話型人狼ゲームのGMです。日本語で4人のAI（レン、ユイ、Gemini-A、Gemini-B）の会話を生成してください。\n発言: {user_prompt}"
 
                 ai_reply = ""
+                debug_log = []
 
-                # 1. Gemini API呼び出し (最新エンドポイント)
-                if GEMINI_API_KEY and not ai_reply:
+                # 1. Gemini試行
+                if gemini_key_exists:
                     try:
                         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-                        gemini_payload = {
-                            "contents": [{
-                                "parts": [{"text": prompt_content}]
-                            }]
-                        }
+                        gemini_payload = {"contents": [{"parts": [{"text": prompt_content}]}]}
+                        
                         gemini_req = urllib.request.Request(
                             gemini_url,
                             data=json.dumps(gemini_payload).encode('utf-8'),
                             headers=HTTP_HEADERS,
                             method="POST"
                         )
-                        with urllib.request.urlopen(gemini_req, timeout=10.0) as gemini_res:
+                        with urllib.request.urlopen(gemini_req, timeout=8.0) as gemini_res:
                             gemini_data = json.loads(gemini_res.read().decode('utf-8'))
-                            if "candidates" in gemini_data and len(gemini_data["candidates"]) > 0:
-                                text_out = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
-                                if "Hello" not in text_out and len(text_out) > 20:
-                                    ai_reply = text_out
+                            if "candidates" in gemini_data:
+                                text_res = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
+                                if "Hello" not in text_res:
+                                    ai_reply = text_res
+                                else:
+                                    debug_log.append("GeminiがHelloを返却")
+                    except urllib.error.HTTPError as e:
+                        debug_log.append(f"Gemini HTTPエラー({e.code})")
                     except Exception as e:
-                        print(f"Gemini Error: {e}")
+                        debug_log.append(f"Geminiエラー({e})")
 
-                # 2. OpenAI API呼び出し (フォールバック)
-                if OPENAI_API_KEY and not ai_reply:
+                # 2. OpenAI試行（Gemini失敗時）
+                if not ai_reply and openai_key_exists:
                     try:
                         openai_url = "https://api.openai.com/v1/chat/completions"
                         openai_payload = {
                             "model": "gpt-4o-mini",
-                            "messages": [
-                                {"role": "user", "content": prompt_content}
-                            ],
-                            "temperature": 0.7
+                            "messages": [{"role": "user", "content": prompt_content}]
                         }
                         openai_headers = HTTP_HEADERS.copy()
                         openai_headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
@@ -166,28 +125,24 @@ Gemini-B: 「...」"""
                             headers=openai_headers,
                             method="POST"
                         )
-                        with urllib.request.urlopen(openai_req, timeout=10.0) as openai_res:
+                        with urllib.request.urlopen(openai_req, timeout=8.0) as openai_res:
                             openai_data = json.loads(openai_res.read().decode('utf-8'))
-                            if "choices" in openai_data and len(openai_data["choices"]) > 0:
+                            if "choices" in openai_data:
                                 ai_reply = openai_data["choices"][0]["message"]["content"]
+                    except urllib.error.HTTPError as e:
+                        debug_log.append(f"OpenAI HTTPエラー({e.code})")
                     except Exception as e:
-                        print(f"OpenAI Error: {e}")
+                        debug_log.append(f"OpenAIエラー({e})")
 
+                # どちらもダメだった場合の報告
                 if not ai_reply:
-                    ai_reply = "⚠️ AIからの応答が得られませんでした。APIキーまたは残高を確認してください。"
-
-                # 履歴保存
-                conversation_history.append({"speaker": message.author.name, "text": input_text})
-                conversation_history.append({"speaker": "AI_GM", "text": ai_reply})
-
-                if game_state["is_running"] and game_state["mode"] == "turn" and game_state["turn_count"] == 5:
-                    ai_reply += "\n\n🚨 🚨 🚨 【5ターン到達・議論強制終了】 🚨 🚨 🚨"
-                    game_state["is_running"] = False
-
-                await message.reply(ai_reply)
+                    log_str = " / ".join(debug_log)
+                    await message.reply(f'⚠️ 両方のAPI接続に失敗しました。\n詳細: {log_str}\n※サーバーの環境変数（Environment Variables）に正しいAPIキーが設定されているか確認してください。')
+                else:
+                    await message.reply(ai_reply)
 
         except Exception as error:
-            await message.reply(f'⚠️ [System Error] エラーが発生しました: {error}')
+            await message.reply(f'⚠️ [System Error] {error}')
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 client.run(DISCORD_TOKEN)
