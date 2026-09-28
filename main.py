@@ -166,7 +166,7 @@ async def setup_game(channel, mode, human_users=None):
         await channel.send(
             f"🍿 **【ワンナイト人狼 - 観戦モード】**\n"
             f"参戦AI: **{', '.join(game['players'].keys())}**\n"
-            f"AI5人のみで全自動対戦を行います！見守ってください。"
+            f"準備完了！ `!jinro next` （または `!jinro つぎ`）と打つと、ターン1の議論を開始します。"
         )
     else:
         ai_names = [n for n, p in game["players"].items() if p["is_ai"]]
@@ -217,30 +217,18 @@ async def process_night_phase():
                 else:
                     p["ai_knows"] = "役職の交換を行いませんでした。"
 
-    await game["channel"].send("☀️ **朝になりました！これより議論タイムを開始します。**")
-    game["phase"] = "discussion"
+    if game["mode"] != "watch":
+        await game["channel"].send("☀️ **朝になりました！これより議論タイムを開始します。**")
+        game["phase"] = "discussion"
 
-    if game["mode"] == "watch":
-        # 観戦モードは全自動で1〜5ターンを連続実行
-        await run_watch_mode_discussion()
-    elif game["mode"] == "multi":
-        await game["channel"].send("⏱️ **【制限時間: 5分】** `!jinro 発言内容` でAIに割り込めます。")
-        game["discussion_task"] = asyncio.create_task(start_5min_timer())
+        if game["mode"] == "multi":
+            await game["channel"].send("⏱️ **【制限時間: 5分】** `!jinro 発言内容` でAIに割り込めます。")
+            game["discussion_task"] = asyncio.create_task(start_5min_timer())
+        else:
+            await game["channel"].send("💬 **【全5ターン制】** `!jinro 発言内容` で発言してください。")
+            await generate_ai_discussion("（議論を開始してください。）")
     else:
-        await game["channel"].send("💬 **【全5ターン制】** `!jinro 発言内容` で発言してください。")
-        await generate_ai_discussion("（議論を開始してください。）")
-
-# --- 観戦モード専用の全自動議論ループ ---
-async def run_watch_mode_discussion():
-    for turn in range(1, 6):
-        if not game["is_running"]:
-            return
-        await game["channel"].send(f"\n🗣️ **【ターン {turn} / 5】**")
-        await generate_ai_discussion(is_watch=True)
-        await asyncio.sleep(3) # 読みやすさのためのウエイト
-
-    await game["channel"].send("\n🚨 **【5ターン終了】** 観戦モードの議論が完了しました。これより投票に移ります！")
-    await start_voting_phase()
+        game["phase"] = "discussion"
 
 # --- AI議論生成 ---
 async def generate_ai_discussion(user_input="", is_watch=False):
@@ -278,11 +266,14 @@ async def generate_ai_discussion(user_input="", is_watch=False):
             if user_input:
                 game["history"].append(f"人間発言: {user_input}")
             game["history"].append(ai_reply)
-            await send_split_message(game["channel"], ai_reply)
+            
+            header = f"🗣️ **【ターン {game['turn_count']} / 5】**\n" if is_watch else ""
+            await send_split_message(game["channel"], header + ai_reply)
         else:
             await game["channel"].send("⚠️ AI応答エラー。`!test` をお試しください。")
 
-    if not is_watch and game["mode"] != "multi" and game["turn_count"] >= 5:
+    # 観戦モード・通常ソロモード共に5ターン目で投票へ遷移
+    if game["turn_count"] >= 5:
         await game["channel"].send("\n🚨 **【5ターン終了】** これより投票タイムに移ります！")
         await start_voting_phase()
 
@@ -425,6 +416,14 @@ async def on_message(message):
         # 🍿 観戦モード起動
         if sub_cmd in ['watch', '観戦']:
             await setup_game(message.channel, "watch")
+            return
+
+        # ⏩ 観戦モード時の「次へ進む」コマンド
+        if sub_cmd in ['next', 'つぎ', '次']:
+            if game["is_running"] and game["mode"] == "watch" and game["phase"] == "discussion":
+                await generate_ai_discussion(is_watch=True)
+            else:
+                await message.reply("⚠️ 現在、観戦モードの議論中ではありません。")
             return
 
         if sub_cmd == "solo":
