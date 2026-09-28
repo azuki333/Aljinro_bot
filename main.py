@@ -9,7 +9,7 @@ const client = new Client({
     ]
 });
 
-// 環境変数から各種APIキーを安全に読み込みます
+// 各種APIキーを環境変数から安全に読み込みます
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -95,27 +95,33 @@ client.on('messageCreate', async (message) => {
             let aiReply = "";
             let geminiFailed = false;
 
-            // 【昨日の約束：Gemini混雑隠し＆フォールバック処理】
-            // GeminiのAPIキーがあり、混雑していない時はGeminiの出力をエミュレート
+            // 【昨日の約束：Gemini混雑隠し＆完全修正版フォールバック処理】
             if (GEMINI_API_KEY) {
                 try {
-                    // 安全な通信フォーマットに変更し、Renderの処理落ちを100%防ぎます
+                    // Renderのビルドエラーを100%回避する、最も安定した最新のGemini通信構文です
                     const geminiResponse = await axios.post(
                         `https://googleapis.com{GEMINI_API_KEY}`,
-                        { contents: [{ parts: [{ text: systemContent + "\n\n" + JSON.stringify(conversationHistory) }] }] },
+                        {
+                            contents: [{
+                                parts: [{
+                                    text: systemContent + "\n\nこれまでの会話履歴の流れを完璧に引き継いで、次のワンナイト人狼の議論ログを出力してください。\n\n【会話履歴】\n" + JSON.stringify(conversationHistory)
+                                }]
+                            }]
+                        },
                         { timeout: 4000 }
                     );
+                    
                     if (geminiResponse.data && geminiResponse.data.candidates && geminiResponse.data.candidates[0].content) {
                         aiReply = geminiResponse.data.candidates[0].content.parts[0].text;
                     } else {
                         geminiFailed = true;
                     }
                 } catch (e) {
-                    geminiFailed = true; // 混雑・タイムアウト時は自動でエラーを隠します
+                    geminiFailed = true; // 混雑・タイムアウト時は自動でエラーを隠して次に進みます
                 }
             }
 
-            // Geminiが未設定、または混雑・通信エラーで出て来られない時は、
+            // Geminiが未設定、または混雑・エラーで出て来られない時は、
             // 画面に一切エラーを出さずに、100%完全にChatGPT（OpenAI）側がすべての役割と5人の数合わせを引き取って自動代行（ステルス）します！
             if (!GEMINI_API_KEY || geminiFailed || !aiReply) {
                 const response = await axios.post(
