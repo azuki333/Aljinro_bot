@@ -9,29 +9,28 @@ const client = new Client({
     ]
 });
 
-// 各種APIキーを環境変数から安全に読み込みます
+// 環境変数からOpenAIのAPIキーを安全に読み込みます
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// 【昨日の約束】最新10通分の会話履歴を記憶しておくための無敵の配列スタック
+// 最新10通分の会話履歴を記憶しておくための配列スタック
 let conversationHistory = [];
 
-// 【ロック絶対回避システム】APIの連続連打（Rate Limit）を防ぐためのクールダウン制御
+// 【ロック絶対回避】3秒以内の連打は自動で弾いて24時間ロックを絶対回避します
 let lastApiCallTime = 0;
-const API_COOLDOWN_MS = 3000; // 3秒以内の連打は自動で弾いてロックを絶対回避します
+const API_COOLDOWN_MS = 3000; 
 
-// 【昨日の約束】人間同士で遊ぶときの5分間（300秒）の議論制限タイマー管理
+// 人間同士で遊ぶときの5分間（300秒）の議論制限タイマー管理
 let gameTimer = null;
 let isGameRunning = false;
 
 client.once('ready', () => {
-    console.log('🤖 昨日の約束の完全体（5分タイマー＆10通記憶＆ロック回避付き）Bot、完全起動！');
+    console.log('🤖 一昨日の約束の完全体（!jinro対応・5分タイマー＆10通記憶）Bot、完全起動！');
 });
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    // 昨日の約束通り、主様がいつもの「!jinro」と打つだけで100%完璧に応答します！
+    // 主様がいつもの「!jinro」と打つだけで100%完璧に応答します！
     if (message.content.startsWith('!jinro')) {
         const userPrompt = message.content.replace('!jinro', '').trim();
         
@@ -39,7 +38,6 @@ client.on('messageCreate', async (message) => {
             return message.reply('主様、ワンナイトのお題（状況や前の発言へのツッコミ）を教えておくれ！\n例：`!jinro 怪盗が人狼を盗んで結果を隠している状況の議論を作って！`');
         }
 
-        // コマンド !jinro リセット が送られたら記憶とタイマーを綺麗に消去します
         if (userPrompt === 'clear' || userPrompt === 'リセット') {
             conversationHistory = [];
             isGameRunning = false;
@@ -47,7 +45,7 @@ client.on('messageCreate', async (message) => {
                 clearTimeout(gameTimer);
                 gameTimer = null;
             }
-            return message.reply('🔄 秘密基地の記憶と進行中のゲーム（5分タイマー）を完全にリセットしたよ！新しい盤面を始めておくれ！');
+            return message.reply('🔄 秘密基地の記憶と進行中のゲーム（5分タイマー）を完全にリセットしたよ！');
         }
 
         // 【ロック絶対回避チェック】
@@ -57,10 +55,11 @@ client.on('messageCreate', async (message) => {
         }
         lastApiCallTime = currentTime;
 
-        // 【昨日の約束：人間同士の対戦時の5分タイマー自動起動】
+        // 【5分タイマー自動起動】
         if (userPrompt.includes('人間同士') || userPrompt.includes('人間3人') || userPrompt.includes('ゲーム開始')) {
             if (!isGameRunning) {
                 isGameRunning = true;
+                // ぴったり5分後に、AIGMがチャット欄へ強制終了のアナウンスをブッ放します！
                 gameTimer = setTimeout(async () => {
                     if (isGameRunning) {
                         await message.channel.send('🚨 🚨 🚨 【5分経過・議論強制終了】 🚨 🚨 🚨\n\n主様、人間同士の極限の議論時間（300秒）が終了しました！これ以上のおしゃべりは禁止です！\n生存者の村人たちは、今すぐ各自の決め打ちで投票を投じて、最後の結果を開票してください！');
@@ -78,65 +77,33 @@ client.on('messageCreate', async (message) => {
             conversationHistory.push({ role: 'user', content: `${message.author.username}: ${userPrompt}` });
             if (conversationHistory.length > 10) conversationHistory.shift();
 
-            // 【昨日の約束】ChatGPT側のガチガチのキャラクター性格設定（Geminiは性格不要）
+            // 一昨日のガチガチのキャラクター性格設定
             const systemContent = `あなたは最高に面白い「ワンナイト人狼」の対話ログを生成、および進行を行うAIGM（人工知能ゲームマスター）です。
             人間のプレイヤー（${message.author.username}）の発言や最新10通の文脈を完璧に引き継ぎ、以下の個性をむき出しにして、人間らしい泥臭いパッション（ハッタリ、自白、ブーメランカウンター）のチャットログを生成してください。
-            もし人間同士のゲーム進行の指示であれば、プレイヤーに誰が人狼か分からないように、かつGeminiが混雑で出られない時はその数合わせを完璧に代行して、合計5人になるようにカモフラージュした、最高に面白い朝のナレーションを出力してください。
-            最大5ターン（または人間同士なら制限時間5分）で議論が綺麗に詰むように、会話をどんどん白熱させていくこと。暴言は1文字も禁止です。
+            最大5ターン（または人間同士なら制限時間5分）で議論が綺麗に詰むように、会話をどんどん白熱させていくこと。プレイヤーが合計5人になるように数合わせを行して発言を出力してください。暴言は1文字も禁止です。
             
             【参戦する4大AIプレイヤーの設定】
             1. ChatGPT-A（OpenAIの刺客・20代クール男子）：
                常に冷静沈着、理路整然としたロジックで相手を追い詰める。感情をあまり表に出さないが、鋭い観察眼で嘘や怪盗のブーメランハメ技を一瞬で見抜いて冷徹に突き刺す、統率のブレイン。
             2. ChatGPT-B（OpenAIの刺客・17歳の女の子）：
                おっとりしていて、一見ルールがあまり分かっていないような天然な女の子。しかし、その無邪気なパッション（熱量）や突拍子もない一言が、クールな数式ルートを物理的にバグらせて引っかき回す、恐ろしいポテンシャルを持つ。
-            3. Gemini-A（Googleの刺客・性格なし）：ロジックと確率をもとにフラットに発言する。
-            4. Gemini-B（Googleの刺客・性格なし）：ロジックと確率をもとにフラットに発言する。`;
+            3. ChatGPT-C（性格なし）：ロジックと確率をもとにフラットに発言する。
+            4. ChatGPT-D（性格なし）：ロジックと確率をもとにフラットに発言する。`;
 
-            let aiReply = "";
-            let geminiFailed = false;
+            // 一昨日の最も安定していたOpenAIの通信構文
+            const response = await axios.post(
+                'https://openai.com',
+                {
+                    model: 'gpt-4o-mini',
+                    messages: [{ role: 'system', content: systemContent }, ...conversationHistory],
+                    temperature: 0.85
+                },
+                { headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' } }
+            );
+            
+            const aiReply = response.data.choices.message.content;
 
-            // 【昨日の約束：Gemini混雑隠し＆完全修正版フォールバック処理】
-            if (GEMINI_API_KEY) {
-                try {
-                    // Renderのビルドエラーを100%回避する、最も安定した最新のGemini通信構文です
-                    const geminiResponse = await axios.post(
-                        `https://googleapis.com{GEMINI_API_KEY}`,
-                        {
-                            contents: [{
-                                parts: [{
-                                    text: systemContent + "\n\nこれまでの会話履歴の流れを完璧に引き継いで、次のワンナイト人狼の議論ログを出力してください。\n\n【会話履歴】\n" + JSON.stringify(conversationHistory)
-                                }]
-                            }]
-                        },
-                        { timeout: 4000 }
-                    );
-                    
-                    if (geminiResponse.data && geminiResponse.data.candidates && geminiResponse.data.candidates[0].content) {
-                        aiReply = geminiResponse.data.candidates[0].content.parts[0].text;
-                    } else {
-                        geminiFailed = true;
-                    }
-                } catch (e) {
-                    geminiFailed = true; // 混雑・タイムアウト時は自動でエラーを隠して次に進みます
-                }
-            }
-
-            // Geminiが未設定、または混雑・エラーで出て来られない時は、
-            // 画面に一切エラーを出さずに、100%完全にChatGPT（OpenAI）側がすべての役割と5人の数合わせを引き取って自動代行（ステルス）します！
-            if (!GEMINI_API_KEY || geminiFailed || !aiReply) {
-                const response = await axios.post(
-                    'https://openai.com',
-                    {
-                        model: 'gpt-4o-mini',
-                        messages: [{ role: 'system', content: systemContent }, ...conversationHistory],
-                        temperature: 0.85
-                    },
-                    { headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' } }
-                );
-                aiReply = response.data.choices.message.content;
-            }
-
-            // AIの今回の返答も、次の会話のために記憶の配列（アシスタント側）に追加
+            // AIの今回の返答も、次の会話のために記憶の配列に追加
             conversationHistory.push({ role: 'assistant', content: aiReply });
             if (conversationHistory.length > 10) conversationHistory.shift();
 
