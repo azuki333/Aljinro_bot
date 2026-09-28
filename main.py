@@ -2,17 +2,18 @@ import discord
 import urllib.request
 import urllib.error
 import json
-import time
 import asyncio
 import os
 import random
 
+# --- Discord Client 設定 ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 client = discord.Client(intents=intents)
 
+# --- 環境変数の取得 ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
@@ -26,8 +27,8 @@ HTTP_HEADERS = {
 AI_CHARACTERS = [
     {"name": "レン", "desc": "20代男性。冷静沈着で論理的。理由を深掘りして詰めるタイプ。"},
     {"name": "ユイ", "desc": "17歳女子高生。直感重視で天然だが、直感で真実を突く。言動が感情的。"},
-    {"name": "Gemini-A", "desc": "Googleの刺客。確率とログ分析重視。長文で客観的なロジックを展開する。"},
-    {"name": "Gemini-B", "desc": "Googleの刺客。人間の心理や発言の矛盾を鋭く突き、誘導やブラフも使う。"},
+    {"name": "Gemini-A", "desc": "確率とログ分析重視。長文で客観的なロジックを展開する。"},
+    {"name": "Gemini-B", "desc": "人間の心理や発言の矛盾を鋭く突き、誘導やブラフも使う。"},
     {"name": "タクミ", "desc": "30代ベテラン。他人に振って様子を見たり、盤面を混乱させたりするのが得意。"}
 ]
 
@@ -37,7 +38,7 @@ ROLES_POOL = ["人狼", "人狼", "占い師", "怪盗", "市民", "市民", "�
 # --- ゲーム状態管理 ---
 game = {
     "is_running": False,
-    "mode": None,          # "ai", "solo", "multi"
+    "mode": None,          # "solo", "multi"
     "phase": "idle",       # "night", "discussion", "voting", "ended"
     "channel": None,
     "players": {},         # name -> {"is_ai": True/False, "user_obj": User/None, "role": "", "original_role": ""}
@@ -45,7 +46,7 @@ game = {
     "votes": {},           # voter -> target
     "turn_count": 0,
     "discussion_task": None,
-    "history": []          # 発言ログ（AI参戦時用）
+    "history": []          # 発言ログ
 }
 
 # --- Discordへの自動分割送信処理（2000文字対策） ---
@@ -56,24 +57,30 @@ async def send_split_message(channel, content):
     for i in range(0, len(content), chunk_size):
         await channel.send(content[i:i+chunk_size])
 
-# --- LLM呼出関数 ---
-def call_llm(prompt_content):
-    # 1. Gemini
+# --- 同期型のAPI呼び出し処理（裏で実行される部分） ---
+def _sync_call_llm(prompt_content, debug=False):
+    errors = []
+
+    # 1. まず Gemini API を試行
     if GEMINI_API_KEY:
         try:
             gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
             payload = {"contents": [{"parts": [{"text": prompt_content}]}]}
             req = urllib.request.Request(gemini_url, data=json.dumps(payload).encode('utf-8'), headers=HTTP_HEADERS, method="POST")
-            with urllib.request.urlopen(req, timeout=12.0) as res:
+            with urllib.request.urlopen(req, timeout=10.0) as res:
                 data = json.loads(res.read().decode('utf-8'))
                 if "candidates" in data and len(data["candidates"]) > 0:
                     text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    if len(text) > 10:
-                        return text
+                    if len(text) > 5:
+                        return (text if not debug else f"【Gemini応答成功】\n{text}")
         except Exception as e:
-            print(f"Gemini Error: {e}")
+            err_msg = f"Gemini Error: {e}"
+            print(err_msg)
+            errors.append(err_msg)
+    else:
+        errors.append("Gemini Error: GEMINI_API_KEY 未設定")
 
-    # 2. OpenAI (Fallback)
+    # 2. Gemini失敗時、自動で OpenAI (ChatGPT) に切り替え
     if OPENAI_API_KEY:
         try:
             openai_url = "https://api.openai.com/v1/chat/completions"
@@ -85,14 +92,31 @@ def call_llm(prompt_content):
             headers = HTTP_HEADERS.copy()
             headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
             req = urllib.request.Request(openai_url, data=json.dumps(payload).encode('utf-8'), headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=12.0) as res:
+            with urllib.request.urlopen(req, timeout=10.0) as res:
                 data = json.loads(res.read().decode('utf-8'))
                 if "choices" in data and len(data["choices"]) > 0:
-                    return data["choices"][0]["message"]["content"]
+                    text = data["choices"][0]["message"]["content"]
+                    return (text if not debug else f"【ChatGPT(OpenAI)応答成功】\n{text}")
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode('utf-8', errors='ignore')
+            err_msg = f"OpenAI HTTPError {e.code}: {err_body}"
+            print(err_msg)
+            errors.append(err_msg)
         except Exception as e:
-            print(f"OpenAI Error: {e}")
+            err_msg = f"OpenAI Error: {e}"
+            print(err_msg)
+            errors.append(err_msg)
+    else:
+        errors.append("OpenAI Error: OPENAI_API_KEY 未設定")
+
+    if debug:
+        return "❌ **両方のAPI呼出に失敗しました。**\n" + "\n".join(errors)
 
     return None
+
+# --- 非同期で呼び出すメイン関数（Renderフリーズ対策） ---
+async def call_llm(prompt_content, debug=False):
+    return await asyncio.to_thread(_sync_call_llm, prompt_content, debug)
 
 @client.event
 async def on_ready():
@@ -100,7 +124,7 @@ async def on_ready():
 
 # --- 5分タイマー処理 ---
 async def start_5min_timer():
-    await asyncio.sleep(300) # 5分 (300秒)
+    await asyncio.sleep(300)
     if game["is_running"] and game["phase"] == "discussion":
         await game["channel"].send("🚨 **【5分経過・議論終了！】** 🚨\nタイムアップです！これより投票タイムに移ります。")
         await start_voting_phase()
@@ -121,7 +145,6 @@ async def setup_game(channel, mode, human_users):
     for u in human_users:
         all_participants.append({"name": u.display_name, "is_ai": False, "user_obj": u})
 
-    # 5人に足りない分をAIで補う
     needed_ai_count = 5 - len(all_participants)
     if needed_ai_count > 0:
         selected_ais = random.sample(AI_CHARACTERS, needed_ai_count)
@@ -200,7 +223,6 @@ async def process_night_phase():
 
     ai_count = sum(1 for p in game["players"].values() if p["is_ai"])
 
-    # 【人間だけ5人の場合】5分タイマーのみ動かしてGMとして進行
     if ai_count == 0:
         await game["channel"].send(
             "⏱️ **【制限時間: 5分】**\n"
@@ -208,8 +230,6 @@ async def process_night_phase():
             "5分経過すると自動で投票タイムへ移ります。"
         )
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
-
-    # 【人間＋AIが混ざっているマルチの場合】
     elif game["mode"] == "multi":
         await game["channel"].send(
             "⏱️ **【制限時間: 5分】**\n"
@@ -217,8 +237,6 @@ async def process_night_phase():
             "※AIプレイヤーに発言させたい時は **`!jinro 発言内容`** と送信してください。"
         )
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
-
-    # 【ソロ対戦（自分1人＋AI4人）の場合】
     else:
         await game["channel"].send("💬 **【全5ターン制】** 発言ごとにAIたちが応答します。`!jinro 発言内容` で発言してください。")
         await generate_ai_discussion("（朝が来ました。ゲームが始まりました。自己紹介や怪しい点について議論を開始してください。）")
@@ -239,43 +257,40 @@ async def generate_ai_discussion(user_input=""):
     recent_history = game["history"][-10:] if len(game["history"]) >= 10 else game["history"]
 
     prompt = f"""あなたは「ワンナイト人狼」のAIプレイヤーたちを演じる高度なGMです。
-以下の【過去10通の会話ログ】を踏まえて、対話がしっかり噛み合うようにAIプレイヤーたちの議論を生成してください。
+以下のログを踏まえて、自然で白熱する議論を作成してください。
 
-【ゲームモード】: {game['mode']}
 【現在のターン】: {game['turn_count']} / 5 ターン
 
-【AIプレイヤーの秘密情報（思考のベースとし、不用意にネタバレしないこと）】
+【AIプレイヤー情報】
 {chr(10).join(ai_players_info)}
 
-【直近のプレイヤー発言】
+【直近の発言】
 {user_input}
 
-【直近10通の会話ログ（文脈を維持すること）】
+【会話ログ】
 {chr(10).join(recent_history)}
 
-【出力・発言制限ルール（厳格遵守）】
-1. AIプレイヤー（{', '.join([n for n, p in game['players'].items() if p['is_ai']])}）の発言を作成してください。
-2. **全体の発言合計は、最低でも【200文字以上】の読み応えのある長さにしてください。** 1〜2文で終わらせず、各AIが疑い、反論し、推理を展開させてください。
-3. 直近のプレイヤー発言やログにしっかり反応した【対話】にしてください。
+【指示】
+AIプレイヤー（{', '.join([n for n, p in game['players'].items() if p['is_ai']])}）の発言を作成してください。"""
 
-フォーマット例:
-レン: 「〜〜」
-ユイ: 「〜〜」"""
-
-    ai_reply = call_llm(prompt)
-    if ai_reply:
-        game["history"].append(f"最新発言: {user_input}")
-        game["history"].append(ai_reply)
-        await send_split_message(game["channel"], ai_reply)
+    # タイピング表示を出してタイムアウトを防ぐ
+    async with game["channel"].typing():
+        ai_reply = await call_llm(prompt)
+        if ai_reply:
+            game["history"].append(f"最新発言: {user_input}")
+            game["history"].append(ai_reply)
+            await send_split_message(game["channel"], ai_reply)
+        else:
+            await game["channel"].send("⚠️ AIの応答取得に失敗しました。`!test` で状態を確認してください。")
 
     if game["mode"] != "multi" and game["turn_count"] >= 5:
-        await game["channel"].send("\n🚨 **【5ターン終了・議論強制打ち切り】** 🚨\n規定ターン数に達しました。これより投票タイムに移ります！")
+        await game["channel"].send("\n🚨 **【5ターン終了・議論打ち切り】** 🚨\n規定ターン数に達しました。これより投票タイムに移ります！")
         await start_voting_phase()
 
 # --- 投票フェーズ ---
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **【投票タイム】**\n誰を処刑するか決めてください！\n・人間の方: **Botとの個別DM** で `!vote プレイヤー名` と送信してください。\n・AI参加時はAIが自動投票します。")
+    await game["channel"].send("🗳️ **【投票タイム】**\n誰を処刑するか決めてください！\n・人間の方: **Botとの個別DM** で `!vote プレイヤー名` と送信してください。")
 
     for name, p in game["players"].items():
         if p["is_ai"]:
@@ -315,7 +330,7 @@ async def Tally_and_finish():
         res_msg += f"最多得票により、**【{executed_player}】** が処刑されました！\n"
     else:
         executed_player = None
-        res_msg += f"票が割れたため（{', '.join(executed)}）、**【平和村（処刑なし）】** となりました！\n"
+        res_msg += f"票が割れたため、**【平和村（処刑なし）】** となりました！\n"
 
     werewolves = [n for n, p in game["players"].items() if p["role"] == "人狼"]
     
@@ -345,6 +360,13 @@ async def on_message(message):
 
     content = message.content.strip()
 
+    # --- 0. 接続・API診断用コマンド ---
+    if content == '!test':
+        async with message.channel.typing():
+            res = await call_llm("「テスト成功」とだけ返答してください。", debug=True)
+            await send_split_message(message.channel, res)
+        return
+
     # --- 1. 日常雑談コマンド (`!chat 話しかけ`) ---
     if content.startswith('!chat'):
         chat_msg = content[5:].strip()
@@ -353,19 +375,16 @@ async def on_message(message):
             return
         
         async with message.channel.typing():
-            prompt = f"""あなたは親しみやすく賢いDiscordのAIパートナーです。
-ユーザー（{message.author.display_name}）からの話しかけに対して、フランクで会話が弾むような楽しい返答をしてください。
-
-ユーザーの発言: {chat_msg}"""
-            reply = call_llm(prompt)
+            prompt = f"ユーザー（{message.author.display_name}）からの話しかけに対して親しく答えてください。\nユーザー: {chat_msg}"
+            reply = await call_llm(prompt)
             
             if reply:
                 await send_split_message(message.channel, reply)
             else:
-                await message.reply("ごめんなさい、うまくお返事を作成できませんでした。もう一度試してみてください！")
+                await message.reply("ごめんね、お返事が作成できませんでした。`!test` と送ってエラー内容を確認してみてね！")
         return
 
-    # --- 2. DMでの処理（夜の行動・投票） ---
+    # --- 2. DM処理 ---
     if isinstance(message.channel, discord.DMChannel):
         player_name = message.author.display_name
         
@@ -418,37 +437,19 @@ async def on_message(message):
             await message.reply('🔄 ゲーム状態を完全リセットしました！')
             return
 
-        if sub_cmd == "ai":
-            await setup_game(message.channel, "ai", [])
-            return
-
         if sub_cmd == "solo":
             await setup_game(message.channel, "solo", [message.author])
             return
 
-        # ゲームスタート（例: !jinro start @友達1 @友達2 @友達3 @友達4）
         if sub_cmd in ["start", "multi"]:
             mentions = message.mentions
-            if len(mentions) < 1:
-                await message.reply("⚠️ 一緒に遊ぶ友達を1〜4人メンションしてください！\n例: `!jinro start @User1 @User2`")
-                return
-            
             human_players = [message.author] + mentions
-            
-            if len(human_players) > 5:
-                await message.reply("⚠️ 5人制ゲームのため、プレイヤーは最大5人までです。（あなた＋メンション4人まで）")
-                return
-
             mode_type = "solo" if len(human_players) == 1 else "multi"
             await setup_game(message.channel, mode_type, human_players)
             return
 
-        # AI参戦時の発言呼び出し
         if game["is_running"] and game["phase"] == "discussion":
-            user_msg = content[6:].strip()
-            if not user_msg:
-                user_msg = "（ゲームを進めてください）"
-            async with message.channel.typing():
-                await generate_ai_discussion(f"{message.author.display_name}: {user_msg}")
+            user_msg = content[6:].strip() or "（ゲームを進めてください）"
+            await generate_ai_discussion(f"{message.author.display_name}: {user_msg}")
 
 client.run(DISCORD_TOKEN)
