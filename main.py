@@ -92,7 +92,7 @@ async def on_message(message):
 
                 current_mode_text = f"【現在の議論ターン数: {game_state['turn_count']} / 5 ターン】" if game_state["mode"] == "turn" else "【人間同士の5分間時間制限バトル中】"
                 
-                system_content = f"""あなたは最高に面白い「対話型ワンナイト人狼ゲーム」を主様と一緒にリアルタイムに進行するAIGMです。
+                system_content = f"""あなたは最高に面白い「対話型ワンナイト人狼ゲーム」を主様と一緒にリアルタイムに進行する AIGM です。
                 人間のプレイヤー（{message.author.name}）の発言や最新10通の文脈を完璧に引き継ぎ、以下の4匹のAIプレイヤーの個性をむき出しにしてチャットログを生成してください。
                 最大5ターン（または人間同士なら制限時間5分）で議論が綺麗に詰むように、会話をどんどん白熱させていくこと。
                 
@@ -111,9 +111,9 @@ async def on_message(message):
                 
                 openai_res = requests.post("https://openai.com", headers=openai_headers, json=openai_payload)
                 
-                # 【急所】JSONを解析する前に、門番のエラー（HTML）が返ってきていないかここで絶対に捕まえます！
+                # 【ここを完璧に修正！】JSONに変換する前に、必ずレスポンスコードを真っ先にチェックします！
                 if openai_res.status_code != 200:
-                    raise Exception(f"HTTP {openai_res.status_code} Error: {openai_res.text[:120]}")
+                    raise Exception(f"HTTP {openai_res.status_code} Error. Response: {openai_res.text[:80]}")
                 
                 openai_data = openai_res.json()
                 ai_reply = openai_data["choices"][0]["message"]["content"]
@@ -130,7 +130,7 @@ async def on_message(message):
 
         except Exception as error:
             print(error)
-            # 門番の正体をDiscordのチャット欄にドカンと1秒で出力します！
+            # 門番の正体や本物のHTTPステータスを、チャット欄にドカンと1秒で出力します！
             await message.reply(f'⚠️ [System Error] OpenAI API Connection Failed. Reason: {error}')
 
 # Botをログインさせます
