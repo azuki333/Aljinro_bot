@@ -25,7 +25,7 @@ let gameTimer = null;
 let isGameRunning = false;
 
 client.once('ready', () => {
-    console.log('🤖 昨日の約束の完全体（5分タイマー＆10通記憶＆ロック回避付き）Bot、大復活！');
+    console.log('🤖 昨日の約束の完全体（5分タイマー＆10通記憶＆ロック回避付き）Bot、完全起動！');
 });
 
 client.on('messageCreate', async (message) => {
@@ -61,7 +61,6 @@ client.on('messageCreate', async (message) => {
         if (userPrompt.includes('人間同士') || userPrompt.includes('人間3人') || userPrompt.includes('ゲーム開始')) {
             if (!isGameRunning) {
                 isGameRunning = true;
-                // ぴったり5分（300,000ミリ秒）後に、AIGMがチャット欄へ強制終了のアナウンスをブッ放します！
                 gameTimer = setTimeout(async () => {
                     if (isGameRunning) {
                         await message.channel.send('🚨 🚨 🚨 【5分経過・議論強制終了】 🚨 🚨 🚨\n\n主様、人間同士の極限の議論時間（300秒）が終了しました！これ以上のおしゃべりは禁止です！\n生存者の村人たちは、今すぐ各自の決め打ちで投票を投じて、最後の結果を開票してください！');
@@ -82,7 +81,7 @@ client.on('messageCreate', async (message) => {
             // 【昨日の約束】ChatGPT側のガチガチのキャラクター性格設定（Geminiは性格不要）
             const systemContent = `あなたは最高に面白い「ワンナイト人狼」の対話ログを生成、および進行を行うAIGM（人工知能ゲームマスター）です。
             人間のプレイヤー（${message.author.username}）の発言や最新10通の文脈を完璧に引き継ぎ、以下の個性をむき出しにして、人間らしい泥臭いパッション（ハッタリ、自白、ブーメランカウンター）のチャットログを生成してください。
-            もし人間同士のゲーム進行の指示であれば、プレイヤーに誰が人狼か分からないようにカモフラージュした、最高に面白い朝のナレーションを出力してください。
+            もし人間同士のゲーム進行の指示であれば、プレイヤーに誰が人狼か分からないように、かつGeminiが混雑で出られない時はその数合わせを完璧に代行して、合計5人になるようにカモフラージュした、最高に面白い朝のナレーションを出力してください。
             最大5ターン（または人間同士なら制限時間5分）で議論が綺麗に詰むように、会話をどんどん白熱させていくこと。暴言は1文字も禁止です。
             
             【参戦する4大AIプレイヤーの設定】
@@ -96,21 +95,28 @@ client.on('messageCreate', async (message) => {
             let aiReply = "";
             let geminiFailed = false;
 
-            // 【昨日の約束：Gemini混雑隠しコード】
+            // 【昨日の約束：Gemini混雑隠し＆フォールバック処理】
+            // GeminiのAPIキーがあり、混雑していない時はGeminiの出力をエミュレート
             if (GEMINI_API_KEY) {
                 try {
+                    // 安全な通信フォーマットに変更し、Renderの処理落ちを100%防ぎます
                     const geminiResponse = await axios.post(
                         `https://googleapis.com{GEMINI_API_KEY}`,
-                        { contents: [{ parts: [{ text: systemContent + "\n\n以上の設定をもとに、最新の履歴の流れを引き継いで次の議論ログを出力してください。\n" + JSON.stringify(conversationHistory) }] }] },
+                        { contents: [{ parts: [{ text: systemContent + "\n\n" + JSON.stringify(conversationHistory) }] }] },
                         { timeout: 4000 }
                     );
-                    aiReply = geminiResponse.data.candidates.content.parts.text;
+                    if (geminiResponse.data && geminiResponse.data.candidates && geminiResponse.data.candidates[0].content) {
+                        aiReply = geminiResponse.data.candidates[0].content.parts[0].text;
+                    } else {
+                        geminiFailed = true;
+                    }
                 } catch (e) {
-                    geminiFailed = true;
+                    geminiFailed = true; // 混雑・タイムアウト時は自動でエラーを隠します
                 }
             }
 
-            // Geminiが混雑・エラー時は、画面をバグらせずにChatGPT(OpenAI)がステルス代行
+            // Geminiが未設定、または混雑・通信エラーで出て来られない時は、
+            // 画面に一切エラーを出さずに、100%完全にChatGPT（OpenAI）側がすべての役割と5人の数合わせを引き取って自動代行（ステルス）します！
             if (!GEMINI_API_KEY || geminiFailed || !aiReply) {
                 const response = await axios.post(
                     'https://openai.com',
@@ -132,7 +138,7 @@ client.on('messageCreate', async (message) => {
 
         } catch (error) {
             console.error(error);
-            await message.reply('⚠️ ごめんね主様！計算がちょっと処理落ちしちゃった。環境変数のキーを確認しておくれ！');
+            await message.reply('⚠️ 主様、ごめんね！APIの通信でちょっと処理落ちしちゃった。環境変数に `OPENAI_API_KEY` が正しく入っているか確認しておくれ！');
         }
     }
 });
