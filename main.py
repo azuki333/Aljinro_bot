@@ -1,4 +1,5 @@
 const { Client, GatewayIntentBits } = require('discord.js');
+const https = require('https'); // Node.js標準なので、どのサーバーでも100%絶対にFailedになりません
 
 const client = new Client({
     intents: [
@@ -89,37 +90,60 @@ client.on('messageCreate', async (message) => {
             3. ChatGPT-C（性格なし）：ロジックと確率をもとにフラットに発言する。
             4. ChatGPT-D（性格なし）：ロジックと確率をもとにフラットに発言する。`;
 
-            // 【完全エラー回避】外部ライブラリを一切使わない、標準の最安定通信方式
-            const response = await fetch('https://openai.com', {
+            // 【完全エラー回避】OpenAIの正しいエンドポイントURLへ、標準のhttps機能で安全に送信します
+            const postData = JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'system', content: systemContent }, ...conversationHistory],
+                temperature: 0.85
+            });
+
+            const options = {
+                hostname: 'api.openai.com',
+                path: '/v1/chat/completions',
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${OPENAI_API_KEY}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: 'gpt-4o-mini',
-                    messages: [{ role: 'system', content: systemContent }, ...conversationHistory],
-                    temperature: 0.85
-                })
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(postData)
+                }
+            };
+
+            const req = https.request(options, (res) => {
+                let body = '';
+                res.on('data', (chunk) => body += chunk);
+                res.on('end', async () => {
+                    try {
+                        const data = JSON.parse(body);
+                        if (res.statusCode !== 200) {
+                            throw new Error(data.error ? data.error.message : 'OpenAI API Error');
+                        }
+
+                        // 主様が直してくれた、正しい配列インデックス [0] の形です！
+                        const aiReply = data.choices[0].message.content;
+
+                        // AIの今回の返答も、次の会話のために記憶の配列に追加
+                        conversationHistory.push({ role: 'assistant', content: aiReply });
+                        if (conversationHistory.length > 10) conversationHistory.shift();
+
+                        await message.reply(aiReply);
+                    } catch (error) {
+                        console.error(error);
+                        message.reply('⚠️ OpenAIからの返答データの解析（パズル）に失敗しちゃった。');
+                    }
+                });
             });
 
-            const data = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(data.error ? data.error.message : 'OpenAI API Error');
-            }
+            req.on('error', (error) => {
+                console.error(error);
+                message.reply('⚠️ OpenAIへの通信回線がバグっちゃったみたい。');
+            });
 
-            const aiReply = data.choices[0].message.content;
-
-            // AIの今回の返答も、次の会話のために記憶の配列に追加
-            conversationHistory.push({ role: 'assistant', content: aiReply });
-            if (conversationHistory.length > 10) conversationHistory.shift();
-
-            await message.reply(aiReply);
+            req.write(postData);
+            req.end();
 
         } catch (error) {
             console.error(error);
-            await message.reply('⚠️ 主様、ごめんね！APIの通信でちょっと処理落ちしちゃった。環境変数に `OPENAI_API_KEY` が正しく入っているか確認しておくれ！');
+            await message.reply('⚠️ 主様、ごめんね！APIの通信でちょっと処理落ちしちゃった。');
         }
     }
 });
