@@ -96,24 +96,25 @@ async def on_message(message):
                 return
 
         if content.startswith('!jinro'):
-            args = content[6:].strip().split()
-            sub = args[0] if len(args) > 0 else ""
-
-            if sub in ["start", "solo", "multi", "watch"] and game["is_running"]:
-                await message.reply("⚠️ ゲームが既に進行中です。(`!jinro clear`でリセット)")
-                return
+            # '!jinro' のあとの文字を取得（例: '!jinro solo' なら 'solo', '!jinro こんにちは' なら 'こんにちは'）
+            parts = content[6:].strip().split(maxsplit=1)
+            sub = parts[0] if len(parts) > 0 else ""
+            arg_text = parts[1] if len(parts) > 1 else ""
 
             if sub in ['clear', 'リセット']:
                 if game["discussion_task"]:
                     game["discussion_task"].cancel()
                 game = {
-                    "is_running": False, "mode": None, "phase": "idle", "channel": None, "players": {}, "center_cards": [], "votes": {}, "hunter_targets": {}, "turn_count": 0, "discussion_task": None, "history": [],
+                    "is_running": False, "mode": None, "phase": "idle", "channel": None, "players": {}, "center_cards": [], "votes": {}, "hunter_targets": {}, "witch_targets": {}, "turn_count": 0, "discussion_task": None, "history": [],
                     "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0}
                 }
                 await message.reply('🔄 リセットしました！')
                 return
 
             if sub in ['watch', '観戦']:
+                if game["is_running"]:
+                    await message.reply("⚠️ ゲームが既に進行中です。")
+                    return
                 await setup_game(message.channel, "watch")
                 return
 
@@ -123,20 +124,28 @@ async def on_message(message):
                 return
 
             if sub == "solo":
+                if game["is_running"]:
+                    await message.reply("⚠️ ゲームが既に進行中です。")
+                    return
                 view = RoleCountSelectView("solo", [message.author])
                 await message.channel.send(embed=view.create_embed(), view=view)
                 return
 
             if sub in ["start", "multi"]:
+                if game["is_running"]:
+                    await message.reply("⚠️ ゲームが既に進行中です。")
+                    return
                 humans = [message.author] + message.mentions
                 mode = "solo" if len(humans) == 1 else "multi"
                 view = RoleCountSelectView(mode, humans)
                 await message.channel.send(embed=view.create_embed(), view=view)
                 return
 
+            # サブコマンドではなく、議論中の発言として扱いたい場合（例: !jinro 私は怪しくないです）
             if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
-                txt = content[6:].strip() or "（進行）"
-                await generate_ai_discussion(user_input=f"{message.author.display_name}: {txt}")
+                # '!jinro' のあとに続くすべての文字列を発言として採用する
+                actual_text = content[6:].strip() or "（進行）"
+                await generate_ai_discussion(user_input=f"{message.author.display_name}: {actual_text}")
 
     except Exception as e:
         print(f"[Error]: {e}")
