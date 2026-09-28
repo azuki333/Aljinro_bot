@@ -255,7 +255,6 @@ async def generate_ai_discussion(user_input="", is_watch=False):
 
     recent_history = game["history"][-10:] if len(game["history"]) >= 10 else game["history"]
 
-    # ★ 思考ステップを盛り込んだプロンプト
     prompt = f"""あなたは「ワンナイト人狼」の高度なAIプレイヤーたちを演じるGMです。
 各AIは単に喋るのではなく、**「盤面整理」「矛盾の看破」「嘘の騙り」**を頭の中で計算してから発言します。
 
@@ -377,7 +376,29 @@ async def on_message(message):
     content = message.content.strip()
 
     try:
-        # --- 0. 接続診断 ---
+        # --- 0. ヘルプコマンド (`!help`) ---
+        if content == '!help':
+            help_text = (
+                "🤖 **【Aljinro_bot コマンド一覧】**\n\n"
+                "**💬 雑談・テスト**\n"
+                "・`!chat <メッセージ>` : AIキャラクターたちと雑談します。\n"
+                "・`!test` : APIの接続テストを行います。\n\n"
+                "**🐺 人狼ゲームコマンド（サーバーのチャンネルで入力）**\n"
+                "・`!jinro solo` : 1人でAI4人と対戦するゲームを開始します。\n"
+                "・`!jinro multi` : 他のプレイヤーと一緒にゲームを開始します。\n"
+                "・`!jinro watch` : AI5人の対戦を観戦モードで開始します。\n"
+                "・`!jinro next` : 観戦モードのときに次のターンを進めます。\n"
+                "・`!jinro <発言内容>` : 議論中にAIに割り込んで話しかけます。\n"
+                "・`!jinro clear` : 進行中のゲームを強制リセットします。\n\n"
+                "**🌙 夜の行動・投票（※BotへのDMで入力）**\n"
+                "・`!fortune <プレイヤー名 または 墓場>` : 占い師の能力を使います。\n"
+                "・`!steal <プレイヤー名>` : 怪盗の能力を使います。\n"
+                "・`!vote <プレイヤー名>` : 投票タイムのときに処刑する人を投票します。"
+            )
+            await message.reply(help_text)
+            return
+
+        # --- 0.1. 接続診断 ---
         if content == '!test':
             async with message.channel.typing():
                 res = await call_llm("「テスト成功」とだけ返答してください。", debug=True)
@@ -411,7 +432,7 @@ async def on_message(message):
                 target = content[6:].strip()
                 if target in game["players"] and target != player_name:
                     game["players"][player_name]["role"], game["players"][target]["role"] = game["players"][target]["role"], game["players"][player_name]["role"]
-                    await message.reply(f"🎭 {target} さんと交換しました。新役職: 『{game['players'][player_name]['role']}』")
+                    await message.reply(f"🎭 {target} さんと交換しました。新役職: 『{game['players'][player_name]["role"]}』")
                 return
 
             if content.startswith('!vote') and game["phase"] == "voting":
