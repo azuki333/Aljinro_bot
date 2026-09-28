@@ -251,14 +251,19 @@ class RoleCountSelectView(discord.ui.View):
 
     @discord.ui.button(label="🚀 ゲーム開始！", style=discord.ButtonStyle.blurple, row=4)
     async def confirm_start(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
         total = sum(self.roles.values())
         if total != 7:
-            await interaction.followup.send(f"⚠️ 合計 **7枚** 必要です（現在 {total} 枚）。", ephemeral=True)
+            # 応答が短いバリデーションエラーは即座に返す
+            await interaction.response.send_message(f"⚠️ 合計 **7枚** 必要です（現在 {total} 枚）。", ephemeral=True)
             return
+
+        # タイムアウト回避の最重要処理：すぐに一度レスポンスを完了させる
+        await interaction.response.send_message("✨ 構成確定！ゲームをセットアップしています…少々お待ちください。", ephemeral=True)
+        
         game["selected_roles"] = dict(self.roles)
-        await interaction.followup.send("✨ 構成確定！ゲームをセットアップします…", ephemeral=True)
         self.stop()
+        
+        # バックグラウンドで安全にセットアップを実行
         asyncio.create_task(setup_game(interaction.channel, self.mode, self.human_users))
 
 async def setup_game(channel, mode, human_users=None):
