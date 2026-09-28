@@ -1,5 +1,6 @@
 import discord
-import requests
+import urllib.request
+import urllib.error
 import json
 import time
 import asyncio
@@ -102,21 +103,30 @@ async def on_message(message):
                 3. ChatGPT-C（性格なし）：フラットにチャット発言。
                 4. ChatGPT-D（性格なし）：フラットにチャット発言。"""
 
-                openai_headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+                # OpenAIの通信データを綺麗に整形します
                 openai_payload = {
                     "model": "gpt-4o-mini",
                     "messages": [{"role": "system", "content": system_content}] + conversation_history,
                     "temperature": 0.85
                 }
                 
-                openai_res = requests.post("https://openai.com", headers=openai_headers, json=openai_payload)
+                data_bytes = json.dumps(openai_payload).encode('utf-8')
                 
-                # 【ここを完璧に修正！】JSONに変換する前に、必ずレスポンスコードを真っ先にチェックします！
-                if openai_res.status_code != 200:
-                    raise Exception(f"HTTP {openai_res.status_code} Error. Response: {openai_res.text[:80]}")
+                req = urllib.request.Request(
+                    "https://openai.com",
+                    data=data_bytes,
+                    headers={
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    method="POST"
+                )
                 
-                openai_data = openai_res.json()
-                ai_reply = openai_data["choices"][0]["message"]["content"]
+                # 【完全エラー回避】標準機能で、JSONのパニックを起こさずに確実にデータを受け取ります！
+                with urllib.request.urlopen(req, timeout=5.0) as res:
+                    body = res.read().decode('utf-8')
+                    openai_data = json.loads(body)
+                    ai_reply = openai_data["choices"][0]["message"]["content"]
 
                 conversation_history.append({"role": "assistant", "content": ai_reply})
                 if len(conversation_history) > 10:
@@ -128,9 +138,11 @@ async def on_message(message):
 
                 await message.reply(ai_reply)
 
+        except urllib.error.HTTPError as e:
+            # 門番のアクセス拒否（403等）や、Keyの不具合（401等）の正体をそのまま自白させます！
+            err_body = e.read().decode('utf-8', errors='ignore')
+            await message.reply(f'⚠️ [HTTP Error {e.code}] OpenAI門番に拒否されました。中身: {err_body[:100]}')
         except Exception as error:
-            print(error)
-            # 門番の正体や本物のHTTPステータスを、チャット欄にドカンと1秒で出力します！
             await message.reply(f'⚠️ [System Error] OpenAI API Connection Failed. Reason: {error}')
 
 # Botをログインさせます
