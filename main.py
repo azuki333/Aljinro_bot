@@ -10,7 +10,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# 環境変数からAPIキーを読み込み（.strip()で前後の余計な空白を自動削除）
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
@@ -88,25 +87,40 @@ async def on_message(message):
 
         try:
             async with message.channel.typing():
-                # 会話履歴の更新
-                input_text = user_prompt if user_prompt else '（ゲーム開始の合図）'
-                conversation_history.append({"role": "user", "content": f"{message.author.name}: {input_text}"})
-                if len(conversation_history) > 10:
-                    conversation_history.pop(0)
-
+                input_text = user_prompt if user_prompt else '（ゲーム開始！会話を始めてください）'
                 current_mode_text = f"【現在の議論ターン数: {game_state['turn_count']} / 5 ターン】" if game_state["mode"] == "turn" else "【人間同士の5分間時間制限バトル中】"
                 
-                system_content = f"""あなたは「対話型ワンナイト人狼ゲーム」を進行する AIGM です。日本語で応答してください。
-人間のプレイヤー（{message.author.name}）の発言を受け、以下の4匹のAIプレイヤーになりきって会話（議論）を展開してください。
+                # 会話履歴テキストの作成
+                history_text = ""
+                for h in conversation_history[-6:]:  # 直近6件に制限して文脈破綻を防ぐ
+                    history_text += f"{h['speaker']}: {h['text']}\n"
 
-【参戦する4大AIプレイヤーの設定】
-1. ChatGPT-A（20代クール男子：レン）：冷静沈着、理路整然としたロジック。
-2. ChatGPT-B（17歳の女の子：ユイ）：おっとり天然な女子高生。
-3. Gemini-A（Googleの刺客）：確率やロジック重視。
-4. Gemini-B（Googleの刺客）：確率やロジック重視。
+                # 完全一体型のプロンプト（AIが命令を無視できない構造）
+                full_prompt = f"""【命令】あなたは「対話型ワンナイト人狼ゲーム」を進行する AIGM です。
+必ず日本語で返答してください。挨拶（Hello等）は一切不要です。即座に人狼の議論チャットを生成してください。
 
+【ゲーム状況】
 {current_mode_text}
-それぞれのキャラクターの名前を付けて発言文を作成してください。"""
+
+【参加している4人のAIプレイヤー設定】
+1. レン（20代クール男子）：冷静沈着、理路整然としたロジックで追い詰める。
+2. ユイ（17歳女子高生）：おっとり天然。直感で発言する。
+3. Gemini-A（Googleの刺客）：確率とロジック重視。淡々と話す。
+4. Gemini-B（Googleの刺客）：人間を観察し、疑い深く分析する。
+
+【直近の会話履歴】
+{history_text}
+
+【最新のプレイヤー発言】
+{message.author.name}: {input_text}
+
+【出力指示】
+上記の4人のキャラクターになりきり、{message.author.name}の発言を受けて、4人が順番に発言しているチャット会話文を作成してください。
+形式例：
+レン: 「〜〜」
+ユイ: 「〜〜」
+Gemini-A: 「〜〜」
+Gemini-B: 「〜〜」"""
 
                 ai_reply = ""
                 gemini_failed = False
@@ -115,10 +129,8 @@ async def on_message(message):
                 if GEMINI_API_KEY:
                     try:
                         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-                        
-                        prompt_text = f"{system_content}\n\n【最新メッセージ】\n{message.author.name}: {input_text}"
                         gemini_payload = {
-                            "contents": [{"parts": [{"text": prompt_text}]}]
+                            "contents": [{"parts": [{"text": full_prompt}]}]
                         }
                         gemini_req = urllib.request.Request(
                             gemini_url,
@@ -126,9 +138,9 @@ async def on_message(message):
                             headers=HTTP_HEADERS,
                             method="POST"
                         )
-                        with urllib.request.urlopen(gemini_req, timeout=8.0) as gemini_res:
+                        with urllib.request.urlopen(gemini_req, timeout=10.0) as gemini_res:
                             gemini_data = json.loads(gemini_res.read().decode('utf-8'))
-                            if "candidates" in gemini_data:
+                            if "candidates" in gemini_data and len(gemini_data["candidates"]) > 0:
                                 ai_reply = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
                             else:
                                 gemini_failed = True
@@ -136,13 +148,15 @@ async def on_message(message):
                         gemini_failed = True
 
                 # 2. OpenAI API呼び出し（バックアップ）
-                if not ai_reply and OPENAI_API_KEY:
+                if (not ai_reply or gemini_failed) and OPENAI_API_KEY:
                     openai_url = "https://api.openai.com/v1/chat/completions"
-                    messages_payload = [{"role": "system", "content": system_content}] + conversation_history
                     openai_payload = {
                         "model": "gpt-4o-mini",
-                        "messages": messages_payload,
-                        "temperature": 0.7
+                        "messages": [
+                            {"role": "system", "content": "あなたは対話型人狼ゲームのGMです。指定されたフォーマット通りに会話を生成してください。"},
+                            {"role": "user", "content": full_prompt}
+                        ],
+                        "temperature": 0.8
                     }
                     openai_headers = HTTP_HEADERS.copy()
                     openai_headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
@@ -153,16 +167,16 @@ async def on_message(message):
                         headers=openai_headers,
                         method="POST"
                     )
-                    with urllib.request.urlopen(openai_req, timeout=8.0) as openai_res:
+                    with urllib.request.urlopen(openai_req, timeout=10.0) as openai_res:
                         openai_data = json.loads(openai_res.read().decode('utf-8'))
                         ai_reply = openai_data["choices"][0]["message"]["content"]
 
                 if not ai_reply:
-                    ai_reply = "⚠️ AIからの応答が得られませんでした。APIキーを確認してください。"
+                    ai_reply = "⚠️ AIからの応答を取得できませんでした。APIキーの設定を確認してください。"
 
-                conversation_history.append({"role": "assistant", "content": ai_reply})
-                if len(conversation_history) > 10:
-                    conversation_history.pop(0)
+                # 会話履歴に保存
+                conversation_history.append({"speaker": message.author.name, "text": input_text})
+                conversation_history.append({"speaker": "AI_GM", "text": ai_reply})
 
                 if game_state["is_running"] and game_state["mode"] == "turn" and game_state["turn_count"] == 5:
                     ai_reply += "\n\n🚨 🚨 🚨 【5ターン到達・議論強制終了】 🚨 🚨 🚨"
