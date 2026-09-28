@@ -26,11 +26,11 @@ HTTP_HEADERS = {
 
 # --- AIキャラクター設定（5人） ---
 AI_CHARACTERS = [
-    {"name": "レン", "desc": "20代男性。冷静沈着で論理的。理由を深掘りして詰めるタイプ。"},
-    {"name": "ユイ", "desc": "17歳女子高生。直感重視で天然だが、直感で真実を突く。言動が感情的。"},
-    {"name": "Gemini-A", "desc": "確率とログ分析重視。長文で客観的なロジックを展開する。"},
-    {"name": "Gemini-B", "desc": "人間の心理や発言の矛盾を鋭く突き、誘導やブラフも使う。"},
-    {"name": "タクミ", "desc": "30代ベテラン。他人に振って様子を見たり、盤面を混乱させたりするのが得意。"}
+    {"name": "レン", "desc": "20代男性。冷静沈着で論理的。矛盾や怪しい発言を見逃さず詰めるタイプ。"},
+    {"name": "ユイ", "desc": "17歳女子高生。直感重視で天然だが直感が当たる。感情的で畳みかける。"},
+    {"name": "Gemini-A", "desc": "確率とログ分析重視。長文で客観的なロジックを展開する分析派。"},
+    {"name": "Gemini-B", "desc": "心理戦が得意。発言の矛盾を突き、他人に疑いを向けるブラフを多用する。"},
+    {"name": "タクミ", "desc": "30代ベテラン。議論を誘導したり、盤面を乱して様子を見る戦略派。"}
 ]
 
 # --- 役職定義 (5人プレイ: 計7枚) ---
@@ -50,7 +50,7 @@ game = {
     "history": []          # 発言ログ
 }
 
-# --- Discordへの自動分割送信処理（エラー対策版） ---
+# --- Discordへの自動分割送信処理 ---
 async def send_split_message(channel, content):
     if not content or not channel:
         return
@@ -176,7 +176,7 @@ async def setup_game(channel, mode, human_users=None):
         await channel.send(
             f"🍿 **【ワンナイト人狼 - 観戦モード】**\n"
             f"参戦AI: **{', '.join(game['players'].keys())}**\n"
-            f"準備完了！ `!jinro next` （または `!jinro つぎ`）でターン1の議論を開始します。"
+            f"準備完了！ `!jinro next` でターン1の議論を開始します。"
         )
     else:
         ai_names = [n for n, p in game["players"].items() if p["is_ai"]]
@@ -238,7 +238,7 @@ async def process_night_phase():
             await game["channel"].send("💬 **【全5ターン制】** `!jinro 発言内容` で発言してください。")
             await generate_ai_discussion("（議論を開始してください。）")
 
-# --- AI議論生成 ---
+# --- AI議論生成（思考プロセス強化版） ---
 async def generate_ai_discussion(user_input="", is_watch=False):
     if game["phase"] != "discussion":
         return
@@ -249,24 +249,37 @@ async def generate_ai_discussion(user_input="", is_watch=False):
     for name, p in game["players"].items():
         if p["is_ai"]:
             knows = p.get("ai_knows", "特別な夜の情報はありません。")
-            ai_players_info.append(f"- {name} ({p['desc']}): 元の役職『{p['original_role']}』, 現在の役職『{p['role']}』. 夜の知識: {knows}")
+            ai_players_info.append(
+                f"- {name} ({p['desc']}): 元の役職『{p['original_role']}』, 現在の役職『{p['role']}』. 夜の知見: {knows}"
+            )
 
     recent_history = game["history"][-10:] if len(game["history"]) >= 10 else game["history"]
 
-    prompt = f"""あなたは「ワンナイト人狼」のAIプレイヤーたちを演じる高度なGMです。
-以下の状況を踏まえて、リアルで白熱する議論の会話を作成してください。
+    # ★ 思考ステップを盛り込んだプロンプト
+    prompt = f"""あなたは「ワンナイト人狼」の高度なAIプレイヤーたちを演じるGMです。
+各AIは単に喋るのではなく、**「盤面整理」「矛盾の看破」「嘘の騙り」**を頭の中で計算してから発言します。
 
 【現在のターン】: {game['turn_count']} / 5 ターン
 
 【AIプレイヤー情報】
 {chr(10).join(ai_players_info)}
 
-【直近の会話ログ】
+【これまでの会話ログ（最新10件）】
 {chr(10).join(recent_history)}
 
-【重要ルール】
-・ユーザーの入力をそのまま文章中に復唱しないでください。
-・各AIキャラクター（{', '.join([n for n, p in game['players'].items() if p['is_ai']])}）の性格に合わせた自然な発言を展開してください。"""
+【各AIの思考ステップ（非公開）】
+発言を出力する前に、各AIは頭の中で以下を整理してください：
+1. **目的の確認**: 
+   - 市民陣営: 人狼を見つけ出す。人狼をあぶり出す質問をする。
+   - 人狼陣営: 自分が処刑されないよう市民や占い師を騙る（嘘CO）、または他人に疑いを向ける。
+   - 怪盗: 奪った後の現在の役職の勝利条件を目指す。
+2. **ログの分析**: 誰の発言が辻褄が合わないか、誰が真の占い師/怪盗かを分析する。
+3. **戦略的発言**: CO（カミングアウト）のタイミング、他人の発言へのツッコミ、または絶妙な誘導を行う。
+
+【出力ルール】
+・思考プロセス自体は出力せず、**完成したキャラクター達のやり取り（発言のみ）**を出力してください。
+・ユーザーの入力文をそのまま復唱しないでください。
+・リアルな人狼ゲームのように、「占い結果発表」「怪盗CO」「怪しい人物への追及」をテンポよく展開してください。"""
 
     try:
         async with game["channel"].typing():
@@ -415,6 +428,12 @@ async def on_message(message):
         if content.startswith('!jinro'):
             args = content[6:].strip().split()
             sub_cmd = args[0] if len(args) > 0 else ""
+
+            # 重複スタート防止のガード
+            if sub_cmd in ["start", "solo", "multi", "watch"]:
+                if game["is_running"]:
+                    await message.reply("⚠️ 現在、他のゲームが進行中です！終わるか `!jinro clear` されるまでお待ちください。")
+                    return
 
             if sub_cmd in ['clear', 'リセット']:
                 if game["discussion_task"]:
