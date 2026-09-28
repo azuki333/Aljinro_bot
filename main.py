@@ -26,7 +26,7 @@ HTTP_HEADERS = {
 
 # --- AIキャラクター設定（5人） ---
 AI_CHARACTERS = [
-    {"name": "レン", "desc": "20代男性。冷静沈着で論理적。矛盾や怪しい発言を見逃さず詰めるタイプ。"},
+    {"name": "レン", "desc": "20代男性。冷静沈着で論理的。矛盾や怪しい発言を見逃さず詰めるタイプ。"},
     {"name": "ユイ", "desc": "17歳女子高生。直感重視で天然だが直感が当たる。感情的で畳みかける。"},
     {"name": "Gemini-A", "desc": "確率とログ分析重視。長文で客観的なロジックを展開する分析派。"},
     {"name": "Gemini-B", "desc": "心理戦が得意。発言の矛盾を突き、他人に疑いを向けるブラフを多用する。"},
@@ -48,16 +48,15 @@ ROLE_EMOJIS = {
 game = {
     "is_running": False,
     "mode": None,
-    "phase": "idle",       # "night", "discussion", "voting", "ended"
+    "phase": "idle",
     "channel": None,
     "players": {},
     "center_cards": [],
     "votes": {},
-    "hunter_targets": {},  # 狩人が道連れに指定したターゲット
+    "hunter_targets": {},
     "turn_count": 0,
     "discussion_task": None,
     "history": [],
-    # デフォルトの役職枚数（同じ役職を複数持てる辞書形式）
     "selected_roles": {
         "人狼": 2,
         "市民": 3,
@@ -70,7 +69,6 @@ game = {
     }
 }
 
-# --- Discordへの自動分割送信処理 ---
 async def send_split_message(channel, content):
     if not content or not channel:
         return
@@ -81,7 +79,6 @@ async def send_split_message(channel, content):
         except Exception as e:
             print(f"[送信エラー]: {e}")
 
-# --- API呼出 ---
 def _sync_call_llm(prompt_content, debug=False):
     errors = []
     if GEMINI_API_KEY:
@@ -140,19 +137,17 @@ async def start_5min_timer():
     except asyncio.CancelledError:
         pass
 
-# --- 役職カスタム増減用ビュー（同じ役職を複数追加できるボタン式） ---
 class RoleCountSelectView(discord.ui.View):
     def __init__(self, mode, human_users):
         super().__init__(timeout=300)
         self.mode = mode
         self.human_users = human_users
-        # 現在の設定をコピーして保持
         self.roles = dict(game["selected_roles"])
 
     def create_embed(self):
         embed = discord.Embed(
             title="🎴 役職カスタム枚数設定パネル",
-            description="ボタンを押して、使いたい役職の枚数を自由に増減させてください。（同じ役職を何枚でも入れられます！）\n※5人プレイの場合、**合計7枚**（プレイヤー5枚 ＋ 中央墓場2枚）になるように調整してください。",
+            description="ボタンを押して、使いたい役職の枚数を自由に増減させてください。\n※5人プレイの場合、合計7枚になるように調整してください。",
             color=discord.Color.blue()
         )
         
@@ -165,7 +160,6 @@ class RoleCountSelectView(discord.ui.View):
         embed.set_footer(text=f"現在の合計カード枚数: {total} 枚 (推奨: 7枚)")
         return embed
 
-    # --- 人狼 ---
     @discord.ui.button(label="🐺 人狼+", style=discord.ButtonStyle.danger, row=0)
     async def add_ww(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.roles["人狼"] += 1
@@ -177,7 +171,6 @@ class RoleCountSelectView(discord.ui.View):
             self.roles["人狼"] -= 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    # --- 市民 ---
     @discord.ui.button(label="👤 市民+", style=discord.ButtonStyle.primary, row=1)
     async def add_cit(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.roles["市民"] += 1
@@ -189,7 +182,6 @@ class RoleCountSelectView(discord.ui.View):
             self.roles["市民"] -= 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    # --- 占い師 ---
     @discord.ui.button(label="🔮 占い+", style=discord.ButtonStyle.success, row=2)
     async def add_see(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.roles["占い師"] += 1
@@ -201,7 +193,6 @@ class RoleCountSelectView(discord.ui.View):
             self.roles["占い師"] -= 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    # --- 怪盗 ---
     @discord.ui.button(label="🕵️ 怪盗+", style=discord.ButtonStyle.success, row=2)
     async def add_thf(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.roles["怪盗"] += 1
@@ -213,7 +204,6 @@ class RoleCountSelectView(discord.ui.View):
             self.roles["怪盗"] -= 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    # --- 狩人 ---
     @discord.ui.button(label="🎯 狩人+", style=discord.ButtonStyle.success, row=3)
     async def add_hnt(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.roles["狩人"] += 1
@@ -225,7 +215,6 @@ class RoleCountSelectView(discord.ui.View):
             self.roles["狩人"] -= 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    # --- てるてる ---
     @discord.ui.button(label="☀️ てる+", style=discord.ButtonStyle.success, row=3)
     async def add_teru(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.roles["てるてる"] += 1
@@ -237,12 +226,11 @@ class RoleCountSelectView(discord.ui.View):
             self.roles["てるてる"] -= 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    # --- 決定ボタン ---
     @discord.ui.button(label="🚀 この構成でゲーム開始！", style=discord.ButtonStyle.blurple, row=4)
     async def confirm_start(self, interaction: discord.Interaction, button: discord.ui.Button):
         total = sum(self.roles.values())
         if total != 7:
-            await interaction.response.send_message(f"⚠️ 5人プレイでは合計 **7枚** 必要です（現在 {total} 枚）。枚数を見直してください。", ephemeral=True)
+            await interaction.response.send_message(f"⚠️ 5人プレイでは合計 **7枚** 必要です（現在 {total} 枚）。", ephemeral=True)
             return
         
         game["selected_roles"] = dict(self.roles)
@@ -278,7 +266,6 @@ async def setup_game(channel, mode, human_users=None):
             for ai in selected_ais:
                 all_participants.append({"name": ai["name"], "is_ai": True, "user_obj": None, "desc": ai["desc"]})
 
-    # 辞書からリスト（プール）を組み立て
     pool = []
     for role, count in game["selected_roles"].items():
         for _ in range(count):
@@ -428,7 +415,6 @@ async def start_voting_phase():
         await asyncio.sleep(2)
         await Tally_and_finish()
 
-# --- 勝敗集計 ---
 async def Tally_and_finish():
     game["phase"] = "ended"
     game["is_running"] = False
@@ -499,7 +485,6 @@ async def Tally_and_finish():
 
     await send_split_message(game["channel"], res_msg)
 
-# --- メッセージ受信イベント ---
 @client.event
 async def on_message(message):
     global game
@@ -514,4 +499,14 @@ async def on_message(message):
             help_text = (
                 "🤖 **【Aljinro_bot 完全版コマンド一覧】**\n\n"
                 "**💬 雑談・テスト**\n"
-                "・`!chat <メッセージ>` : AIキ
+                "・`!chat <メッセージ>` : AIキャラクターたちと雑談\n"
+                "・`!test` : API接続テスト\n\n"
+                "**🐺 人狼ゲームコマンド（サーバー）**\n"
+                "・`!jinro solo` : 1人で対戦（役職カスタム増減パネル表示）\n"
+                "・`!jinro multi @メンバー...` : 複数人で対戦\n"
+                "・`!jinro watch` : 観戦モード\n"
+                "・`!jinro next` : 次のターン\n"
+                "・`!jinro <発言>` : 議論に割り込み\n"
+                "・`!jinro clear` : リセット\n\n"
+                "**🌙 夜の行動・投票（※BotへのDM）**\n"
+                
