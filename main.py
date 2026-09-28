@@ -96,7 +96,7 @@ def call_llm(prompt_content):
 
 @client.event
 async def on_ready():
-    print(f'🤖 【ワンナイト人狼GM Bot】起動成功！ ({client.user.name})')
+    print(f'🤖 【人狼＆雑談 Bot】起動成功！ ({client.user.name})')
 
 # --- 5分タイマー処理 ---
 async def start_5min_timer():
@@ -345,7 +345,27 @@ async def on_message(message):
 
     content = message.content.strip()
 
-    # --- DMでの処理（夜の行動・投票） ---
+    # --- 1. 日常雑談コマンド (`!chat 話しかけ`) ---
+    if content.startswith('!chat'):
+        chat_msg = content[5:].strip()
+        if not chat_msg:
+            await message.reply("💬 `!chat こんにちは` のように話しかけてね！")
+            return
+        
+        async with message.channel.typing():
+            prompt = f"""あなたは親しみやすく賢いDiscordのAIパートナーです。
+ユーザー（{message.author.display_name}）からの話しかけに対して、フランクで会話が弾むような楽しい返答をしてください。
+
+ユーザーの発言: {chat_msg}"""
+            reply = call_llm(prompt)
+            
+            if reply:
+                await send_split_message(message.channel, reply)
+            else:
+                await message.reply("ごめんなさい、うまくお返事を作成できませんでした。もう一度試してみてください！")
+        return
+
+    # --- 2. DMでの処理（夜の行動・投票） ---
     if isinstance(message.channel, discord.DMChannel):
         player_name = message.author.display_name
         
@@ -386,7 +406,7 @@ async def on_message(message):
                     await message.reply("⚠️ 対象のプレイヤー名が見つかりません。正確に入力してください。")
             return
 
-    # --- サーバーチャンネルでの処理 ---
+    # --- 3. サーバーチャンネルでの人狼処理 (`!jinro`) ---
     if content.startswith('!jinro'):
         args = content[6:].strip().split()
         sub_cmd = args[0] if len(args) > 0 else ""
