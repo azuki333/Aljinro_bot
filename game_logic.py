@@ -253,17 +253,12 @@ class RoleCountSelectView(discord.ui.View):
     async def confirm_start(self, interaction: discord.Interaction, button: discord.ui.Button):
         total = sum(self.roles.values())
         if total != 7:
-            # 応答が短いバリデーションエラーは即座に返す
             await interaction.response.send_message(f"⚠️ 合計 **7枚** 必要です（現在 {total} 枚）。", ephemeral=True)
             return
 
-        # タイムアウト回避の最重要処理：すぐに一度レスポンスを完了させる
         await interaction.response.send_message("✨ 構成確定！ゲームをセットアップしています…少々お待ちください。", ephemeral=True)
-        
         game["selected_roles"] = dict(self.roles)
         self.stop()
-        
-        # バックグラウンドで安全にセットアップを実行
         asyncio.create_task(setup_game(interaction.channel, self.mode, self.human_users))
 
 async def setup_game(channel, mode, human_users=None):
@@ -380,15 +375,33 @@ async def generate_ai_discussion(user_input="", is_watch=False):
     ai_info = []
     for name, p in game["players"].items():
         if p["is_ai"]:
-            ai_info.append(f"- {name} ({p['desc']}): 元『{p['original_role']}』, 現在『{p['role']}』. 夜: {p.get('ai_knows', '')}")
+            ai_info.append(
+                f"- 名前: {name} (設定: {p['desc']})\n"
+                f"  【本当の秘密役職】: {p['role']} (元の役職: {p['original_role']})\n"
+                f"  【夜に得た情報/行動】: {p.get('ai_knows', '平穏な夜だった')}"
+            )
 
-    prompt = f"""ワンナイト人狼のAI議論。
-ターン: {game['turn_count']} / 5
-【AI情報】
+    prompt = f"""ワンナイト人狼のAI議論（ターン {game['turn_count']} / 5）。
+あなたは、AIキャラクターの一人として他のメンバーと議論をします。
+
+【ゲームのルールと目的】
+- 市民陣営：人狼を見つけて処刑する。
+- 人狼陣営：市民陣営をだまして自分以外の誰かを処刑に追い込む。
+- てるてる坊主：自分が処刑されれば単独勝利。そのため、あえて怪しい動きをして処刑を誘導してよい。
+- **重要（役職騙り・ブラフ）**: 
+  - 人狼や狂人は、自分が人狼だとバレないように「私は占い師です」などと**嘘の役職を騙っても構いません**。
+  - 市民や他の役職も、状況をかく乱するためにあえて嘘をついたり、ブラフ（ハッタリ）を仕掛けて心理戦を楽しんでください。
+
+【参加者（AI）のステータス】
 {chr(10).join(ai_info)}
-【ログ】
-{chr(10).join(game['history'][-8:])}
-議論のやり取りを出力してください。"""
+
+【これまでの会話・発言ログ】
+{chr(10).join(game['history'][-10:])}
+
+【直近のユーザー（人間）の発言】
+{user_input if user_input else "（特に人間からの直接発言なし。議論を進める）"}
+
+上記を踏まえ、今回のターンでのAIたちの議論のやり取り（誰が何を主張し、誰を疑うか、どんな嘘や騙りを仕掛けるか）を、自然な会話のセリフ形式で出力してください。"""
 
     try:
         async with game["channel"].typing():
