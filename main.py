@@ -87,50 +87,49 @@ async def on_message(message):
 
         try:
             async with message.channel.typing():
-                input_text = user_prompt if user_prompt else '（ゲーム開始！会話を始めてください）'
+                input_text = user_prompt if user_prompt else 'ゲーム開始！全員自己紹介して議論を始めてください！'
                 current_mode_text = f"【現在の議論ターン数: {game_state['turn_count']} / 5 ターン】" if game_state["mode"] == "turn" else "【人間同士の5分間時間制限バトル中】"
                 
-                # 会話履歴テキストの作成
                 history_text = ""
-                for h in conversation_history[-6:]:  # 直近6件に制限して文脈破綻を防ぐ
+                for h in conversation_history[-4:]:
                     history_text += f"{h['speaker']}: {h['text']}\n"
 
-                # 完全一体型のプロンプト（AIが命令を無視できない構造）
-                full_prompt = f"""【命令】あなたは「対話型ワンナイト人狼ゲーム」を進行する AIGM です。
-必ず日本語で返答してください。挨拶（Hello等）は一切不要です。即座に人狼の議論チャットを生成してください。
+                # プロンプトの構造を「純粋なユーザー命令」として1つに統合
+                prompt_content = f"""[絶対命令]
+あなたは「対話型ワンナイト人狼ゲーム」のゲームマスターです。英語の挨拶（Hello等）は絶対に禁止します。日本語のみで回答してください。
 
-【ゲーム状況】
+以下の4人のプレイヤー（レン、ユイ、Gemini-A、Gemini-B）になりきり、{message.author.name}の発言を受けて、4人が順番に人狼ゲームの議論をしている会話文を作成してください。
+
 {current_mode_text}
 
-【参加している4人のAIプレイヤー設定】
-1. レン（20代クール男子）：冷静沈着、理路整然としたロジックで追い詰める。
-2. ユイ（17歳女子高生）：おっとり天然。直感で発言する。
-3. Gemini-A（Googleの刺客）：確率とロジック重視。淡々と話す。
-4. Gemini-B（Googleの刺客）：人間を観察し、疑い深く分析する。
+【プレイヤー設定】
+1. レン（20代男子）：冷静、論理的
+2. ユイ（17歳女子高生）：直感重視、天然
+3. Gemini-A：確率重視、淡々と話す
+4. Gemini-B：人間観察、疑い深い
 
-【直近の会話履歴】
+【直近の会話】
 {history_text}
 
-【最新のプレイヤー発言】
+【今回のプレイヤー発言】
 {message.author.name}: {input_text}
 
-【出力指示】
-上記の4人のキャラクターになりきり、{message.author.name}の発言を受けて、4人が順番に発言しているチャット会話文を作成してください。
-形式例：
-レン: 「〜〜」
-ユイ: 「〜〜」
-Gemini-A: 「〜〜」
-Gemini-B: 「〜〜」"""
+【出力形式】
+レン: 「...」
+ユイ: 「...」
+Gemini-A: 「...」
+Gemini-B: 「...」"""
 
                 ai_reply = ""
-                gemini_failed = False
 
-                # 1. Gemini API呼び出し
-                if GEMINI_API_KEY:
+                # 1. Gemini API呼び出し (最新エンドポイント)
+                if GEMINI_API_KEY and not ai_reply:
                     try:
                         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
                         gemini_payload = {
-                            "contents": [{"parts": [{"text": full_prompt}]}]
+                            "contents": [{
+                                "parts": [{"text": prompt_content}]
+                            }]
                         }
                         gemini_req = urllib.request.Request(
                             gemini_url,
@@ -141,40 +140,43 @@ Gemini-B: 「〜〜」"""
                         with urllib.request.urlopen(gemini_req, timeout=10.0) as gemini_res:
                             gemini_data = json.loads(gemini_res.read().decode('utf-8'))
                             if "candidates" in gemini_data and len(gemini_data["candidates"]) > 0:
-                                ai_reply = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
-                            else:
-                                gemini_failed = True
+                                text_out = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
+                                if "Hello" not in text_out and len(text_out) > 20:
+                                    ai_reply = text_out
                     except Exception as e:
-                        gemini_failed = True
+                        print(f"Gemini Error: {e}")
 
-                # 2. OpenAI API呼び出し（バックアップ）
-                if (not ai_reply or gemini_failed) and OPENAI_API_KEY:
-                    openai_url = "https://api.openai.com/v1/chat/completions"
-                    openai_payload = {
-                        "model": "gpt-4o-mini",
-                        "messages": [
-                            {"role": "system", "content": "あなたは対話型人狼ゲームのGMです。指定されたフォーマット通りに会話を生成してください。"},
-                            {"role": "user", "content": full_prompt}
-                        ],
-                        "temperature": 0.8
-                    }
-                    openai_headers = HTTP_HEADERS.copy()
-                    openai_headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
+                # 2. OpenAI API呼び出し (フォールバック)
+                if OPENAI_API_KEY and not ai_reply:
+                    try:
+                        openai_url = "https://api.openai.com/v1/chat/completions"
+                        openai_payload = {
+                            "model": "gpt-4o-mini",
+                            "messages": [
+                                {"role": "user", "content": prompt_content}
+                            ],
+                            "temperature": 0.7
+                        }
+                        openai_headers = HTTP_HEADERS.copy()
+                        openai_headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
 
-                    openai_req = urllib.request.Request(
-                        openai_url,
-                        data=json.dumps(openai_payload).encode('utf-8'),
-                        headers=openai_headers,
-                        method="POST"
-                    )
-                    with urllib.request.urlopen(openai_req, timeout=10.0) as openai_res:
-                        openai_data = json.loads(openai_res.read().decode('utf-8'))
-                        ai_reply = openai_data["choices"][0]["message"]["content"]
+                        openai_req = urllib.request.Request(
+                            openai_url,
+                            data=json.dumps(openai_payload).encode('utf-8'),
+                            headers=openai_headers,
+                            method="POST"
+                        )
+                        with urllib.request.urlopen(openai_req, timeout=10.0) as openai_res:
+                            openai_data = json.loads(openai_res.read().decode('utf-8'))
+                            if "choices" in openai_data and len(openai_data["choices"]) > 0:
+                                ai_reply = openai_data["choices"][0]["message"]["content"]
+                    except Exception as e:
+                        print(f"OpenAI Error: {e}")
 
                 if not ai_reply:
-                    ai_reply = "⚠️ AIからの応答を取得できませんでした。APIキーの設定を確認してください。"
+                    ai_reply = "⚠️ AIからの応答が得られませんでした。APIキーまたは残高を確認してください。"
 
-                # 会話履歴に保存
+                # 履歴保存
                 conversation_history.append({"speaker": message.author.name, "text": input_text})
                 conversation_history.append({"speaker": "AI_GM", "text": ai_reply})
 
