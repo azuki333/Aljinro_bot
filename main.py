@@ -23,7 +23,7 @@ HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
-# --- AIキャラクター設定 ---
+# --- AIキャラクター設定（5人） ---
 AI_CHARACTERS = [
     {"name": "レン", "desc": "20代男性。冷静沈着で論理的。理由を深掘りして詰めるタイプ。"},
     {"name": "ユイ", "desc": "17歳女子高生。直感重視で天然だが、直感で真実を突く。言動が感情的。"},
@@ -38,10 +38,10 @@ ROLES_POOL = ["人狼", "人狼", "占い師", "怪盗", "市民", "市民", "�
 # --- ゲーム状態管理 ---
 game = {
     "is_running": False,
-    "mode": None,          # "solo", "multi"
+    "mode": None,          # "solo", "multi", "watch"
     "phase": "idle",       # "night", "discussion", "voting", "ended"
     "channel": None,
-    "players": {},         # name -> {"is_ai": True/False, "user_obj": User/None, "role": "", "original_role": ""}
+    "players": {},
     "center_cards": [],    # 墓場のカード2枚
     "votes": {},           # voter -> target
     "turn_count": 0,
@@ -49,7 +49,7 @@ game = {
     "history": []          # 発言ログ
 }
 
-# --- Discordへの自動分割送信処理（2000文字対策） ---
+# --- Discordへの自動分割送信処理 ---
 async def send_split_message(channel, content):
     if not content:
         return
@@ -57,11 +57,11 @@ async def send_split_message(channel, content):
     for i in range(0, len(content), chunk_size):
         await channel.send(content[i:i+chunk_size])
 
-# --- 同期型のAPI呼び出し処理（裏で実行される部分） ---
+# --- 同期型のAPI呼び出し処理 ---
 def _sync_call_llm(prompt_content, debug=False):
     errors = []
 
-    # 1. まず Gemini API を試行
+    # 1. Gemini API
     if GEMINI_API_KEY:
         try:
             gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -77,10 +77,8 @@ def _sync_call_llm(prompt_content, debug=False):
             err_msg = f"Gemini Error: {e}"
             print(err_msg)
             errors.append(err_msg)
-    else:
-        errors.append("Gemini Error: GEMINI_API_KEY 未設定")
 
-    # 2. Gemini失敗時、自動で OpenAI (ChatGPT) に切り替え
+    # 2. ChatGPT (OpenAI API)
     if OPENAI_API_KEY:
         try:
             openai_url = "https://api.openai.com/v1/chat/completions"
@@ -97,24 +95,17 @@ def _sync_call_llm(prompt_content, debug=False):
                 if "choices" in data and len(data["choices"]) > 0:
                     text = data["choices"][0]["message"]["content"]
                     return (text if not debug else f"【ChatGPT(OpenAI)応答成功】\n{text}")
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode('utf-8', errors='ignore')
-            err_msg = f"OpenAI HTTPError {e.code}: {err_body}"
-            print(err_msg)
-            errors.append(err_msg)
         except Exception as e:
             err_msg = f"OpenAI Error: {e}"
             print(err_msg)
             errors.append(err_msg)
-    else:
-        errors.append("OpenAI Error: OPENAI_API_KEY 未設定")
 
     if debug:
-        return "❌ **両方のAPI呼出に失敗しました。**\n" + "\n".join(errors)
+        return "❌ 両方のAPI呼出に失敗しました。\n" + "\n".join(errors)
 
     return None
 
-# --- 非同期で呼び出すメイン関数（Renderフリーズ対策） ---
+# --- 非同期で呼び出すメイン関数 ---
 async def call_llm(prompt_content, debug=False):
     return await asyncio.to_thread(_sync_call_llm, prompt_content, debug)
 
@@ -126,11 +117,11 @@ async def on_ready():
 async def start_5min_timer():
     await asyncio.sleep(300)
     if game["is_running"] and game["phase"] == "discussion":
-        await game["channel"].send("🚨 **【5分経過・議論終了！】** 🚨\nタイムアップです！これより投票タイムに移ります。")
+        await game["channel"].send("🚨 **【5分経過・議論終了！】** タイムアップです！これより投票タイムに移ります。")
         await start_voting_phase()
 
 # --- ゲームセットアップ ---
-async def setup_game(channel, mode, human_users):
+async def setup_game(channel, mode, human_users=None):
     global game
     game["is_running"] = True
     game["mode"] = mode
@@ -141,15 +132,22 @@ async def setup_game(channel, mode, human_users):
     game["turn_count"] = 0
     game["history"] = []
 
+    human_users = human_users or []
     all_participants = []
-    for u in human_users:
-        all_participants.append({"name": u.display_name, "is_ai": False, "user_obj": u})
 
-    needed_ai_count = 5 - len(all_participants)
-    if needed_ai_count > 0:
-        selected_ais = random.sample(AI_CHARACTERS, needed_ai_count)
-        for ai in selected_ais:
+    # 観戦モード(watch)の場合はAI5人のみで構成
+    if mode == "watch":
+        for ai in AI_CHARACTERS:
             all_participants.append({"name": ai["name"], "is_ai": True, "user_obj": None, "desc": ai["desc"]})
+    else:
+        for u in human_users:
+            all_participants.append({"name": u.display_name, "is_ai": False, "user_obj": u})
+
+        needed_ai_count = 5 - len(all_participants)
+        if needed_ai_count > 0:
+            selected_ais = random.sample(AI_CHARACTERS, needed_ai_count)
+            for ai in selected_ais:
+                all_participants.append({"name": ai["name"], "is_ai": True, "user_obj": None, "desc": ai["desc"]})
 
     shuffled_roles = random.sample(ROLES_POOL, len(ROLES_POOL))
     game["center_cards"] = [shuffled_roles.pop(), shuffled_roles.pop()]
@@ -164,14 +162,20 @@ async def setup_game(channel, mode, human_users):
             "desc": p.get("desc", "")
         }
 
-    ai_names = [n for n, p in game["players"].items() if p["is_ai"]]
-    ai_status_msg = f"（AIプレイヤー: {', '.join(ai_names)} が参戦）" if ai_names else "（👥 **完全人間5人での対戦・純粋GMモード**）"
-
-    await channel.send(
-        f"🌌 **【ワンナイト人狼】ゲームを開始します！】**\n"
-        f"参加者: **{', '.join(game['players'].keys())}** {ai_status_msg}\n"
-        f"現在『夜の時間』です。人間プレイヤーに個別DMで役職を通知しています…"
-    )
+    if mode == "watch":
+        await channel.send(
+            f"🍿 **【ワンナイト人狼 - 観戦モード】**\n"
+            f"参戦AI: **{', '.join(game['players'].keys())}**\n"
+            f"AI5人のみで全自動対戦を行います！見守ってください。"
+        )
+    else:
+        ai_names = [n for n, p in game["players"].items() if p["is_ai"]]
+        ai_status_msg = f"（AIプレイヤー: {', '.join(ai_names)} が参戦）" if ai_names else "（👥 完全人間5人での対戦）"
+        await channel.send(
+            f"🌌 **【ワンナイト人狼】ゲームを開始します！**\n"
+            f"参加者: **{', '.join(game['players'].keys())}** {ai_status_msg}\n"
+            f"現在『夜の時間』です。人間プレイヤーに個別DMで役職を通知しています…"
+        )
 
     await process_night_phase()
 
@@ -179,29 +183,24 @@ async def setup_game(channel, mode, human_users):
 async def process_night_phase():
     werewolves = [name for name, p in game["players"].items() if p["role"] == "人狼"]
 
+    # 人間への通知
     for name, p in game["players"].items():
         if not p["is_ai"] and p["user_obj"]:
             msg = f"🌙 **【あなたの役職】: 『{p['role']}』**\n"
             if p["role"] == "人狼":
                 other_wolves = [w for w in werewolves if w != name]
-                if other_wolves:
-                    msg += f"仲間となる人狼は **【{', '.join(other_wolves)}】** です。"
-                else:
-                    msg += "あなた以外の仲間はいません（孤独な人狼です）。"
+                msg += f"仲間: **【{', '.join(other_wolves)}】**" if other_wolves else "（仲間なし）"
             elif p["role"] == "占い師":
-                msg += "夜の能力を行使できます！誰か1人の役職を見るか、墓場のカード2枚を見るか選んでください。\n"
-                msg += "💬 **DMで `!fortune プレイヤー名` または `!fortune 墓場` と送信してください。**"
+                msg += "💬 DMで `!fortune プレイヤー名` または `!fortune 墓場` と送信してください。"
             elif p["role"] == "怪盗":
-                msg += "誰か1人と役職を交換できます。\n"
-                msg += "💬 **DMで `!steal プレイヤー名` と送信してください。（交換しない場合は `!steal なし`）**"
-            elif p["role"] == "市民":
-                msg += "特別な能力はありません。昼の議論で村を導いてください！"
+                msg += "💬 DMで `!steal プレイヤー名` と送信してください。"
             
             try:
                 await p["user_obj"].send(msg)
-            except Exception as e:
-                await game["channel"].send(f"⚠️ {name} さんへのDM送信に失敗しました。DMの設定をご確認ください。")
+            except Exception:
+                await game["channel"].send(f"⚠️ {name} さんへのDM送信に失敗しました。")
 
+    # AIの夜行動
     for name, p in game["players"].items():
         if p["is_ai"]:
             if p["role"] == "占い師":
@@ -214,35 +213,37 @@ async def process_night_phase():
                 if random.random() < 0.7:
                     target = random.choice([n for n in game["players"].keys() if n != name])
                     game["players"][name]["role"], game["players"][target]["role"] = game["players"][target]["role"], game["players"][name]["role"]
-                    p["ai_knows"] = f"{target} さんと役職を交換しました。あなたの新しい役職は『{game['players'][name]['role']}』です。"
+                    p["ai_knows"] = f"{target} さんと役職を交換しました。現在の役職は『{game['players'][name]['role']}』です。"
                 else:
                     p["ai_knows"] = "役職の交換を行いませんでした。"
 
-    await game["channel"].send("☀️ **朝になりました！全員目を開けてください。**\nこれより議論タイムを開始します。")
+    await game["channel"].send("☀️ **朝になりました！これより議論タイムを開始します。**")
     game["phase"] = "discussion"
 
-    ai_count = sum(1 for p in game["players"].values() if p["is_ai"])
-
-    if ai_count == 0:
-        await game["channel"].send(
-            "⏱️ **【制限時間: 5分】**\n"
-            "人間5名のみの対戦です！チャットで自由にご議論ください。（Botへのコマンド打刻は不要です）\n"
-            "5分経過すると自動で投票タイムへ移ります。"
-        )
-        game["discussion_task"] = asyncio.create_task(start_5min_timer())
+    if game["mode"] == "watch":
+        # 観戦モードは全自動で1〜5ターンを連続実行
+        await run_watch_mode_discussion()
     elif game["mode"] == "multi":
-        await game["channel"].send(
-            "⏱️ **【制限時間: 5分】**\n"
-            "人間同士は自由にご議論ください！\n"
-            "※AIプレイヤーに発言させたい時は **`!jinro 発言内容`** と送信してください。"
-        )
+        await game["channel"].send("⏱️ **【制限時間: 5分】** `!jinro 発言内容` でAIに割り込めます。")
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
     else:
-        await game["channel"].send("💬 **【全5ターン制】** 発言ごとにAIたちが応答します。`!jinro 発言内容` で発言してください。")
-        await generate_ai_discussion("（朝が来ました。ゲームが始まりました。自己紹介や怪しい点について議論を開始してください。）")
+        await game["channel"].send("💬 **【全5ターン制】** `!jinro 発言内容` で発言してください。")
+        await generate_ai_discussion("（議論を開始してください。）")
+
+# --- 観戦モード専用の全自動議論ループ ---
+async def run_watch_mode_discussion():
+    for turn in range(1, 6):
+        if not game["is_running"]:
+            return
+        await game["channel"].send(f"\n🗣️ **【ターン {turn} / 5】**")
+        await generate_ai_discussion(is_watch=True)
+        await asyncio.sleep(3) # 読みやすさのためのウエイト
+
+    await game["channel"].send("\n🚨 **【5ターン終了】** 観戦モードの議論が完了しました。これより投票に移ります！")
+    await start_voting_phase()
 
 # --- AI議論生成 ---
-async def generate_ai_discussion(user_input=""):
+async def generate_ai_discussion(user_input="", is_watch=False):
     if game["phase"] != "discussion":
         return
 
@@ -257,41 +258,40 @@ async def generate_ai_discussion(user_input=""):
     recent_history = game["history"][-10:] if len(game["history"]) >= 10 else game["history"]
 
     prompt = f"""あなたは「ワンナイト人狼」のAIプレイヤーたちを演じる高度なGMです。
-以下のログを踏まえて、自然で白熱する議論を作成してください。
+以下の状況を踏まえて、リアルで白熱する議論の会話を作成してください。
 
 【現在のターン】: {game['turn_count']} / 5 ターン
 
 【AIプレイヤー情報】
 {chr(10).join(ai_players_info)}
 
-【直近の発言】
-{user_input}
-
-【会話ログ】
+【直近の会話ログ】
 {chr(10).join(recent_history)}
 
-【指示】
-AIプレイヤー（{', '.join([n for n, p in game['players'].items() if p['is_ai']])}）の発言を作成してください。"""
+【重要ルール】
+・ユーザーの入力をそのまま文章中に復唱しないでください。
+・各AIキャラクター（{', '.join([n for n, p in game['players'].items() if p['is_ai']])}）の性格に合わせた自然な発言を展開してください。"""
 
-    # タイピング表示を出してタイムアウトを防ぐ
     async with game["channel"].typing():
         ai_reply = await call_llm(prompt)
         if ai_reply:
-            game["history"].append(f"最新発言: {user_input}")
+            if user_input:
+                game["history"].append(f"人間発言: {user_input}")
             game["history"].append(ai_reply)
             await send_split_message(game["channel"], ai_reply)
         else:
-            await game["channel"].send("⚠️ AIの応答取得に失敗しました。`!test` で状態を確認してください。")
+            await game["channel"].send("⚠️ AI応答エラー。`!test` をお試しください。")
 
-    if game["mode"] != "multi" and game["turn_count"] >= 5:
-        await game["channel"].send("\n🚨 **【5ターン終了・議論打ち切り】** 🚨\n規定ターン数に達しました。これより投票タイムに移ります！")
+    if not is_watch and game["mode"] != "multi" and game["turn_count"] >= 5:
+        await game["channel"].send("\n🚨 **【5ターン終了】** これより投票タイムに移ります！")
         await start_voting_phase()
 
 # --- 投票フェーズ ---
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **【投票タイム】**\n誰を処刑するか決めてください！\n・人間の方: **Botとの個別DM** で `!vote プレイヤー名` と送信してください。")
+    await game["channel"].send("🗳️ **【投票タイム】** 誰を処刑するか投票中...")
 
+    # AIたちの自動投票
     for name, p in game["players"].items():
         if p["is_ai"]:
             candidates = [n for n in game["players"].keys() if n != name]
@@ -302,7 +302,10 @@ async def start_voting_phase():
             game["votes"][name] = random.choice(candidates)
 
     humans = [n for n, p in game["players"].items() if not p["is_ai"]]
+    
+    # 人間がいない（観戦モード）または全員投票完了なら即開票
     if len(humans) == 0:
+        await asyncio.sleep(2)
         await Tally_and_finish()
 
 # --- 勝敗集計 ---
@@ -320,7 +323,7 @@ async def Tally_and_finish():
     max_votes = max(vote_counts.values()) if vote_counts else 0
     executed = [n for n, c in vote_counts.items() if c == max_votes]
 
-    res_msg = "⚖️ **【集計結果と開示】**\n"
+    res_msg = "⚖️ **【集計結果】**\n"
     for voter, target in game["votes"].items():
         res_msg += f"・{voter} ➡️ {target}\n"
 
@@ -336,17 +339,17 @@ async def Tally_and_finish():
     
     res_msg += "\n🎉 **【勝敗発表】**\n"
     if executed_player and game["players"][executed_player]["role"] == "人狼":
-        res_msg += "🏆 **市民陣営の勝利！**（人狼を処刑することに成功しました！）\n"
+        res_msg += "🏆 **市民陣営の勝利！**（人狼を処刑できました！）\n"
     elif not executed_player and len(werewolves) == 0:
-        res_msg += "🏆 **市民陣営の勝利！**（人狼不在の村で平穏を守りました！）\n"
+        res_msg += "🏆 **市民陣営の勝利！**（平和村達成！）\n"
     else:
-        res_msg += "🐺 **人狼陣営の勝利！**（人狼の逃げ切り成功です！）\n"
+        res_msg += "🐺 **人狼陣営の勝利！**（人狼の逃げ切り成功！）\n"
 
-    res_msg += "\n📜 **【最終役職一覧】**\n"
+    res_msg += "\n📜 **【正解（最終役職）】**\n"
     for n, p in game["players"].items():
         orig = f" (元: {p['original_role']})" if p['original_role'] != p['role'] else ""
         res_msg += f"・{n}: 『{p['role']}』{orig}\n"
-    res_msg += f"・墓場（未配布）: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
+    res_msg += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
 
     await send_split_message(game["channel"], res_msg)
 
@@ -360,72 +363,54 @@ async def on_message(message):
 
     content = message.content.strip()
 
-    # --- 0. 接続・API診断用コマンド ---
+    # --- 0. 接続診断 ---
     if content == '!test':
         async with message.channel.typing():
             res = await call_llm("「テスト成功」とだけ返答してください。", debug=True)
             await send_split_message(message.channel, res)
         return
 
-    # --- 1. 日常雑談コマンド (`!chat 話しかけ`) ---
+    # --- 1. 雑談 (`!chat`) ---
     if content.startswith('!chat'):
         chat_msg = content[5:].strip()
         if not chat_msg:
-            await message.reply("💬 `!chat こんにちは` のように話しかけてね！")
+            await message.reply("💬 `!chat こんにちは` と話しかけてね！")
             return
-        
         async with message.channel.typing():
-            prompt = f"ユーザー（{message.author.display_name}）からの話しかけに対して親しく答えてください。\nユーザー: {chat_msg}"
-            reply = await call_llm(prompt)
-            
+            reply = await call_llm(f"ユーザー（{message.author.display_name}）の言葉に親しく答えてください:\n{chat_msg}")
             if reply:
                 await send_split_message(message.channel, reply)
-            else:
-                await message.reply("ごめんね、お返事が作成できませんでした。`!test` と送ってエラー内容を確認してみてね！")
         return
 
     # --- 2. DM処理 ---
     if isinstance(message.channel, discord.DMChannel):
         player_name = message.author.display_name
-        
-        if content.startswith('!fortune'):
+        if content.startswith('!fortune') and game["is_running"]:
             target = content[8:].strip()
-            if game["is_running"] and game["players"].get(player_name, {}).get("role") == "占い師":
-                if target == "墓場":
-                    await message.reply(f"🔮 墓場のカードは『{game['center_cards'][0]}』と『{game['center_cards'][1]}』です。")
-                elif target in game["players"]:
-                    await message.reply(f"🔮 {target} さんの役職は『{game['players'][target]['role']}』です。")
-                else:
-                    await message.reply("⚠️ 対象が見つかりません。正確なプレイヤー名か『墓場』と送信してください。")
+            if target == "墓場":
+                await message.reply(f"🔮 墓場は『{game['center_cards'][0]}』と『{game['center_cards'][1]}』です。")
+            elif target in game["players"]:
+                await message.reply(f"🔮 {target} さんの役職は『{game['players'][target]['role']}』です。")
             return
 
-        if content.startswith('!steal'):
+        if content.startswith('!steal') and game["is_running"]:
             target = content[6:].strip()
-            if game["is_running"] and game["players"].get(player_name, {}).get("role") == "怪盗":
-                if target in game["players"] and target != player_name:
-                    game["players"][player_name]["role"], game["players"][target]["role"] = game["players"][target]["role"], game["players"][player_name]["role"]
-                    await message.reply(f"🎭 {target} さんと役職を交換しました！あなたの新しい役職は『{game['players'][player_name]['role']}』です。")
-                elif target in ["なし", "スキップ"]:
-                    await message.reply("🎭 役職の交換を行いませんでした。")
-                else:
-                    await message.reply("⚠️ 交換対象が見つかりません。正確なプレイヤー名を送信してください。")
+            if target in game["players"] and target != player_name:
+                game["players"][player_name]["role"], game["players"][target]["role"] = game["players"][target]["role"], game["players"][player_name]["role"]
+                await message.reply(f"🎭 {target} さんと交換しました。新役職: 『{game['players'][player_name]['role']}』")
             return
 
-        if content.startswith('!vote'):
+        if content.startswith('!vote') and game["phase"] == "voting":
             target = content[5:].strip()
-            if game["phase"] == "voting" and player_name in game["players"]:
-                if target in game["players"]:
-                    game["votes"][player_name] = target
-                    await message.reply(f"✅ **{target}** さんに投票完了しました！")
-
-                    human_names = [n for n, p in game["players"].items() if not p["is_ai"]]
-                    if all(h in game["votes"] for h in human_names):
-                        await Tally_and_finish()
-                else:
-                    await message.reply("⚠️ 対象のプレイヤー名が見つかりません。正確に入力してください。")
+            if target in game["players"]:
+                game["votes"][player_name] = target
+                await message.reply(f"✅ **{target}** さんに投票しました！")
+                humans = [n for n, p in game["players"].items() if not p["is_ai"]]
+                if all(h in game["votes"] for h in humans):
+                    await Tally_and_finish()
             return
 
-    # --- 3. サーバーチャンネルでの人狼処理 (`!jinro`) ---
+    # --- 3. 人狼コマンド (`!jinro`) ---
     if content.startswith('!jinro'):
         args = content[6:].strip().split()
         sub_cmd = args[0] if len(args) > 0 else ""
@@ -434,7 +419,12 @@ async def on_message(message):
             if game["discussion_task"]:
                 game["discussion_task"].cancel()
             game = {"is_running": False, "mode": None, "phase": "idle", "channel": None, "players": {}, "center_cards": [], "votes": {}, "turn_count": 0, "discussion_task": None, "history": []}
-            await message.reply('🔄 ゲーム状態を完全リセットしました！')
+            await message.reply('🔄 ゲーム状態をリセットしました！')
+            return
+
+        # 🍿 観戦モード起動
+        if sub_cmd in ['watch', '観戦']:
+            await setup_game(message.channel, "watch")
             return
 
         if sub_cmd == "solo":
@@ -448,8 +438,8 @@ async def on_message(message):
             await setup_game(message.channel, mode_type, human_players)
             return
 
-        if game["is_running"] and game["phase"] == "discussion":
+        if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
             user_msg = content[6:].strip() or "（ゲームを進めてください）"
-            await generate_ai_discussion(f"{message.author.display_name}: {user_msg}")
+            await generate_ai_discussion(user_input=f"{message.author.display_name}: {user_msg}")
 
 client.run(DISCORD_TOKEN)
