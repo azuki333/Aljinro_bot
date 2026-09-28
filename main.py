@@ -80,6 +80,12 @@ async def on_message(message):
                     await message.reply(f"🎯 狩人能力: {t} を指定しました。")
                 return
 
+            if content.startswith('!witch') and game["is_running"]:
+                t = content[7:].strip()
+                if t in game["players"]:
+                    await message.reply(f"🧙 魔女っ子能力: {t} の役職は『{game['players'][t]['role']}』です。")
+                return
+
             if content.startswith('!vote') and game["phase"] == "voting":
                 t = content[5:].strip()
                 if t in game["players"]:
