@@ -146,100 +146,117 @@ class RoleCountSelectView(discord.ui.View):
 
     @discord.ui.button(label="🐺 人狼+", style=discord.ButtonStyle.danger, row=0)
     async def add_ww(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.roles["人狼"] += 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="人狼-", style=discord.ButtonStyle.secondary, row=0)
     async def sub_ww(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         if self.roles["人狼"] > 0:
             self.roles["人狼"] -= 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="👤 市民+", style=discord.ButtonStyle.primary, row=0)
     async def add_cit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.roles["市民"] += 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="市民-", style=discord.ButtonStyle.secondary, row=0)
     async def sub_cit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         if self.roles["市民"] > 0:
             self.roles["市民"] -= 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🔮 占い+", style=discord.ButtonStyle.success, row=1)
     async def add_see(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.roles["占い師"] += 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="占い-", style=discord.ButtonStyle.secondary, row=1)
     async def sub_see(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         if self.roles["占い師"] > 0:
             self.roles["占い師"] -= 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🕵️ 怪盗+", style=discord.ButtonStyle.success, row=1)
     async def add_thf(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.roles["怪盗"] += 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="怪盗-", style=discord.ButtonStyle.secondary, row=1)
     async def sub_thf(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         if self.roles["怪盗"] > 0:
             self.roles["怪盗"] -= 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🎯 狩人+", style=discord.ButtonStyle.success, row=2)
     async def add_hnt(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.roles["狩人"] += 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="狩人-", style=discord.ButtonStyle.secondary, row=2)
     async def sub_hnt(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         if self.roles["狩人"] > 0:
             self.roles["狩人"] -= 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="☀️ てる+", style=discord.ButtonStyle.success, row=2)
     async def add_teru(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.roles["てるてる"] += 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="てる-", style=discord.ButtonStyle.secondary, row=2)
     async def sub_teru(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         if self.roles["てるてる"] > 0:
             self.roles["てるてる"] -= 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🧙 魔女+", style=discord.ButtonStyle.success, row=3)
     async def add_witch(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.roles["魔女っ子"] += 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="魔女-", style=discord.ButtonStyle.secondary, row=3)
     async def sub_witch(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         if self.roles["魔女っ子"] > 0:
             self.roles["魔女っ子"] -= 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🤫 狂人+", style=discord.ButtonStyle.success, row=3)
     async def add_mad(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.roles["狂人"] += 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="狂人-", style=discord.ButtonStyle.secondary, row=3)
     async def sub_mad(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         if self.roles["狂人"] > 0:
             self.roles["狂人"] -= 1
-        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+        await interaction.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🚀 ゲーム開始！", style=discord.ButtonStyle.blurple, row=4)
     async def confirm_start(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         total = sum(self.roles.values())
         if total != 7:
-            await interaction.response.send_message(f"⚠️ 合計 **7枚** 必要です（現在 {total} 枚）。", ephemeral=True)
+            await interaction.followup.send(f"⚠️ 合計 **7枚** 必要です（現在 {total} 枚）。", ephemeral=True)
             return
         game["selected_roles"] = dict(self.roles)
-        await interaction.response.send_message("✨ 構成確定！セットアップ中…", ephemeral=True)
+        await interaction.followup.send("✨ 構成確定！セットアップ中…", ephemeral=True)
         self.stop()
         await setup_game(interaction.channel, self.mode, self.human_users)
 
@@ -309,8 +326,6 @@ async def process_night_phase():
                 msg += "💬 `!steal プレイヤー名`"
             elif p["role"] == "狩人":
                 msg += "💬 `!hunt プレイヤー名`"
-            elif p["role"]["魔女っ子" if "魔女っ子" == p["role"] else ""]: # 安全確保
-                msg += "💬 `!witch プレイヤー名`"
             elif p["role"] == "魔女っ子":
                 msg += "💬 `!witch プレイヤー名`"
             elif p["role"] == "狂人":
