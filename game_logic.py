@@ -210,7 +210,29 @@ class RoleCountSelectView(discord.ui.View):
             self.roles["てるてる"] -= 1
         await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
-    @discord.ui.button(label="🚀 この構成でゲーム開始！", style=discord.ButtonStyle.blurple, row=4)
+    @discord.ui.button(label="🧙 魔女+", style=discord.ButtonStyle.success, row=4)
+    async def add_witch(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.roles["魔女っ子"] += 1
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="魔女-", style=discord.ButtonStyle.secondary, row=4)
+    async def sub_witch(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.roles["魔女っ子"] > 0:
+            self.roles["魔女っ子"] -= 1
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="🤫 狂人+", style=discord.ButtonStyle.success, row=4)
+    async def add_mad(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.roles["狂人"] += 1
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="狂人-", style=discord.ButtonStyle.secondary, row=4)
+    async def sub_mad(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.roles["狂人"] > 0:
+            self.roles["狂人"] -= 1
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="🚀 ゲーム開始！", style=discord.ButtonStyle.blurple, row=5)
     async def confirm_start(self, interaction: discord.Interaction, button: discord.ui.Button):
         total = sum(self.roles.values())
         if total != 7:
@@ -287,6 +309,12 @@ async def process_night_phase():
                 msg += "💬 `!steal プレイヤー名`"
             elif p["role"] == "狩人":
                 msg += "💬 `!hunt プレイヤー名`"
+            elif p["role"] == "魔女っ子":
+                msg += "💬 `!witch プレイヤー名`"
+            elif p["role"] == "狂人":
+                msg += "💬 あなたは狂人です。人狼陣営を勝利に導いてください。"
+            elif p["role"] == "てるてる":
+                msg += "💬 あなたはてるてる坊主です。処刑されれば単独勝利です！"
             try:
                 await p["user_obj"].send(msg)
             except Exception as e:
@@ -305,6 +333,9 @@ async def process_night_phase():
                 t = random.choice([n for n in game["players"].keys() if n != name])
                 game["hunter_targets"][name] = t
                 p["ai_knows"] = f"{t} を道連れ指定しました。"
+            elif p["role"] == "魔女っ子":
+                t = random.choice([n for n in game["players"].keys() if n != name])
+                p["ai_knows"] = f"{t} の役職は『{game['players'][t]['role']}』でした。"
             else:
                 p["ai_knows"] = "平穏な夜でした。"
 
