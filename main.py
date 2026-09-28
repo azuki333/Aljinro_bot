@@ -45,14 +45,13 @@ game = {
     "votes": {},           # voter -> target
     "turn_count": 0,
     "discussion_task": None,
-    "history": []          # 発言ログ（直近10通を保持して対話に利用）
+    "history": []          # 発言ログ（AI参戦時用）
 }
 
 # --- Discordへの自動分割送信処理（2000文字対策） ---
 async def send_split_message(channel, content):
     if not content:
         return
-    # Discordの制限は2000文字（余裕をもって1900文字単位で分割）
     chunk_size = 1900
     for i in range(0, len(content), chunk_size):
         await channel.send(content[i:i+chunk_size])
@@ -101,7 +100,7 @@ async def on_ready():
 
 # --- 5分タイマー処理 ---
 async def start_5min_timer():
-    await asyncio.sleep(300)
+    await asyncio.sleep(300) # 5分 (300秒)
     if game["is_running"] and game["phase"] == "discussion":
         await game["channel"].send("🚨 **【5分経過・議論終了！】** 🚨\nタイムアップです！これより投票タイムに移ります。")
         await start_voting_phase()
@@ -119,20 +118,18 @@ async def setup_game(channel, mode, human_users):
     game["history"] = []
 
     all_participants = []
-    
     for u in human_users:
         all_participants.append({"name": u.display_name, "is_ai": False, "user_obj": u})
 
-    # 5人に足りない分をAIで補充
+    # 5人に足りない分をAIで補う
     needed_ai_count = 5 - len(all_participants)
     if needed_ai_count > 0:
         selected_ais = random.sample(AI_CHARACTERS, needed_ai_count)
         for ai in selected_ais:
             all_participants.append({"name": ai["name"], "is_ai": True, "user_obj": None, "desc": ai["desc"]})
 
-    # 役職シャッフル
     shuffled_roles = random.sample(ROLES_POOL, len(ROLES_POOL))
-    game["center_cards"] = [shuffled_roles.pop(), shuffled_roles.pop()] # 墓場2枚
+    game["center_cards"] = [shuffled_roles.pop(), shuffled_roles.pop()]
 
     for p in all_participants:
         assigned_role = shuffled_roles.pop()
@@ -145,7 +142,7 @@ async def setup_game(channel, mode, human_users):
         }
 
     ai_names = [n for n, p in game["players"].items() if p["is_ai"]]
-    ai_status_msg = f"（AIプレイヤー: {', '.join(ai_names)} が参戦）" if ai_names else "（人間5人での対戦）"
+    ai_status_msg = f"（AIプレイヤー: {', '.join(ai_names)} が参戦）" if ai_names else "（👥 **完全人間5人での対戦・純粋GMモード**）"
 
     await channel.send(
         f"🌌 **【ワンナイト人狼】ゲームを開始します！】**\n"
@@ -159,7 +156,6 @@ async def setup_game(channel, mode, human_users):
 async def process_night_phase():
     werewolves = [name for name, p in game["players"].items() if p["role"] == "人狼"]
 
-    # 人間への個別DM
     for name, p in game["players"].items():
         if not p["is_ai"] and p["user_obj"]:
             msg = f"🌙 **【あなたの役職】: 『{p['role']}』**\n"
@@ -183,7 +179,6 @@ async def process_night_phase():
             except Exception as e:
                 await game["channel"].send(f"⚠️ {name} さんへのDM送信に失敗しました。DMの設定をご確認ください。")
 
-    # AIの夜行動（自動判定）
     for name, p in game["players"].items():
         if p["is_ai"]:
             if p["role"] == "占い師":
@@ -203,9 +198,27 @@ async def process_night_phase():
     await game["channel"].send("☀️ **朝になりました！全員目を開けてください。**\nこれより議論タイムを開始します。")
     game["phase"] = "discussion"
 
-    if game["mode"] == "multi":
-        await game["channel"].send("⏱️ **【制限時間: 5分】** 自由にご議論ください！\n※AIプレイヤーへ呼びかける場合は `!jinro 発言内容` で打つと返答します。")
+    ai_count = sum(1 for p in game["players"].values() if p["is_ai"])
+
+    # 【人間だけ5人の場合】5分タイマーのみ動かしてGMとして進行
+    if ai_count == 0:
+        await game["channel"].send(
+            "⏱️ **【制限時間: 5分】**\n"
+            "人間5名のみの対戦です！チャットで自由にご議論ください。（Botへのコマンド打刻は不要です）\n"
+            "5分経過すると自動で投票タイムへ移ります。"
+        )
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
+
+    # 【人間＋AIが混ざっているマルチの場合】
+    elif game["mode"] == "multi":
+        await game["channel"].send(
+            "⏱️ **【制限時間: 5分】**\n"
+            "人間同士は自由にご議論ください！\n"
+            "※AIプレイヤーに発言させたい時は **`!jinro 発言内容`** と送信してください。"
+        )
+        game["discussion_task"] = asyncio.create_task(start_5min_timer())
+
+    # 【ソロ対戦（自分1人＋AI4人）の場合】
     else:
         await game["channel"].send("💬 **【全5ターン制】** 発言ごとにAIたちが応答します。`!jinro 発言内容` で発言してください。")
         await generate_ai_discussion("（朝が来ました。ゲームが始まりました。自己紹介や怪しい点について議論を開始してください。）")
@@ -223,7 +236,6 @@ async def generate_ai_discussion(user_input=""):
             knows = p.get("ai_knows", "特別な夜の情報はありません。")
             ai_players_info.append(f"- {name} ({p['desc']}): 元の役職『{p['original_role']}』, 現在の役職『{p['role']}』. 夜の知識: {knows}")
 
-    # 直近10通分（最大10個）の記憶を取り出す
     recent_history = game["history"][-10:] if len(game["history"]) >= 10 else game["history"]
 
     prompt = f"""あなたは「ワンナイト人狼」のAIプレイヤーたちを演じる高度なGMです。
@@ -252,11 +264,8 @@ async def generate_ai_discussion(user_input=""):
 
     ai_reply = call_llm(prompt)
     if ai_reply:
-        # ログへの追加
         game["history"].append(f"最新発言: {user_input}")
         game["history"].append(ai_reply)
-        
-        # 2,000文字超に対応した分割送信
         await send_split_message(game["channel"], ai_reply)
 
     if game["mode"] != "multi" and game["turn_count"] >= 5:
@@ -266,9 +275,8 @@ async def generate_ai_discussion(user_input=""):
 # --- 投票フェーズ ---
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **【投票タイム】**\n誰を処刑するか決めてください！\n・人間の方: **Botとの個別DM** で `!vote プレイヤー名` と送信してください。\n・AIは自動で秘密裏に投票完了しています。")
+    await game["channel"].send("🗳️ **【投票タイム】**\n誰を処刑するか決めてください！\n・人間の方: **Botとの個別DM** で `!vote プレイヤー名` と送信してください。\n・AI参加時はAIが自動投票します。")
 
-    # AIの自動投票
     for name, p in game["players"].items():
         if p["is_ai"]:
             candidates = [n for n in game["players"].keys() if n != name]
@@ -337,11 +345,10 @@ async def on_message(message):
 
     content = message.content.strip()
 
-    # --- DMでの夜のアクション・投票処理 ---
+    # --- DMでの処理（夜の行動・投票） ---
     if isinstance(message.channel, discord.DMChannel):
         player_name = message.author.display_name
         
-        # 占い処理
         if content.startswith('!fortune'):
             target = content[8:].strip()
             if game["is_running"] and game["players"].get(player_name, {}).get("role") == "占い師":
@@ -353,7 +360,6 @@ async def on_message(message):
                     await message.reply("⚠️ 対象が見つかりません。正確なプレイヤー名か『墓場』と送信してください。")
             return
 
-        # 怪盗処理
         if content.startswith('!steal'):
             target = content[6:].strip()
             if game["is_running"] and game["players"].get(player_name, {}).get("role") == "怪盗":
@@ -366,7 +372,6 @@ async def on_message(message):
                     await message.reply("⚠️ 交換対象が見つかりません。正確なプレイヤー名を送信してください。")
             return
 
-        # 投票処理
         if content.startswith('!vote'):
             target = content[5:].strip()
             if game["phase"] == "voting" and player_name in game["players"]:
@@ -374,7 +379,6 @@ async def on_message(message):
                     game["votes"][player_name] = target
                     await message.reply(f"✅ **{target}** さんに投票完了しました！")
 
-                    # 人間全員の投票チェック
                     human_names = [n for n, p in game["players"].items() if not p["is_ai"]]
                     if all(h in game["votes"] for h in human_names):
                         await Tally_and_finish()
@@ -382,12 +386,11 @@ async def on_message(message):
                     await message.reply("⚠️ 対象のプレイヤー名が見つかりません。正確に入力してください。")
             return
 
-    # --- ギルドチャンネルでのコマンド処理 ---
+    # --- サーバーチャンネルでの処理 ---
     if content.startswith('!jinro'):
         args = content[6:].strip().split()
         sub_cmd = args[0] if len(args) > 0 else ""
 
-        # リセット
         if sub_cmd in ['clear', 'リセット']:
             if game["discussion_task"]:
                 game["discussion_task"].cancel()
@@ -395,17 +398,15 @@ async def on_message(message):
             await message.reply('🔄 ゲーム状態を完全リセットしました！')
             return
 
-        # 観戦モード (`!jinro ai`)
         if sub_cmd == "ai":
             await setup_game(message.channel, "ai", [])
             return
 
-        # ソロモード (`!jinro solo`)
         if sub_cmd == "solo":
             await setup_game(message.channel, "solo", [message.author])
             return
 
-        # マルチ対戦 (`!jinro start @友達1 @友達2`)
+        # ゲームスタート（例: !jinro start @友達1 @友達2 @友達3 @友達4）
         if sub_cmd in ["start", "multi"]:
             mentions = message.mentions
             if len(mentions) < 1:
@@ -422,14 +423,12 @@ async def on_message(message):
             await setup_game(message.channel, mode_type, human_players)
             return
 
-        # 通常発言（対話応答）
+        # AI参戦時の発言呼び出し
         if game["is_running"] and game["phase"] == "discussion":
             user_msg = content[6:].strip()
             if not user_msg:
                 user_msg = "（ゲームを進めてください）"
-            
-            if game["mode"] != "multi":
-                async with message.channel.typing():
-                    await generate_ai_discussion(f"{message.author.display_name}: {user_msg}")
+            async with message.channel.typing():
+                await generate_ai_discussion(f"{message.author.display_name}: {user_msg}")
 
 client.run(DISCORD_TOKEN)
