@@ -82,6 +82,13 @@ async def start_5min_timer():
             await start_voting_phase()
     except asyncio.CancelledError: pass
 
+def find_mentioned_ai(text):
+    """テキスト内に参加しているAIの名前が含まれているか確認し、最初に見つかったAIのデータを返す"""
+    for name, p in game["players"].items():
+        if p["is_ai"] and name in text:
+            return name, p
+    return None, None
+
 class RoleCountSelectView(discord.ui.View):
     def __init__(self, mode, human_users):
         super().__init__(timeout=300)
@@ -255,7 +262,7 @@ async def process_night_phase():
 
     game["phase"] = "discussion"
     if game["mode"] != "watch":
-        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言`)**")
+        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` ※AIの名前を入れるとそのAIが答えます)**")
         if game["mode"] == "multi":
             game["discussion_task"] = asyncio.create_task(start_5min_timer())
         else:
@@ -280,6 +287,30 @@ async def generate_ai_discussion(user_input="", is_watch=False):
     if game["turn_count"] >= 5:
         await game["channel"].send("\n🚨 **5ターン終了！投票タイムへ移行します。**")
         await start_voting_phase()
+
+async def handle_jinro_command(message, actual_text, author_name):
+    """!jinroコマンドが実行された際の処理。AIの名前が含まれていればそのAIが個別返答する"""
+    if game["mode"] == "solo" or game["mode"] == "watch":
+        await generate_ai_discussion(user_input=f"{author_name}: {actual_text}")
+    elif game["mode"] == "multi":
+        ai_name, target_ai = find_mentioned_ai(actual_text)
+        
+        if ai_name and target_ai:
+            ai_info = f"- {ai_name}: 設定({target_ai['desc']}), 役職({target_ai['role']}), 夜行動({target_ai.get('ai_knows','')})"
+            prompt = f"ワンナイト人狼の議論中。あなたは『{ai_name}』です。性格・設定: {target_ai['desc']}\nプレイヤー({author_name})からの発言: 「{actual_text}」\nこの発言に対して、あなたのキャラクターになりきって短く（1〜3文程度で）返答してください。"
+            
+            try:
+                async with message.channel.typing():
+                    reply = await call_llm(prompt)
+                    if reply:
+                        game["history"].append(f"{author_name}: {actual_text}")
+                        game["history"].append(f"{ai_name}の返答: {reply}")
+                        await send_split_message(message.channel, f"🗣️ **{ai_name}**: {reply}")
+            except Exception as e:
+                print(f"[AI個別返答エラー]: {e}")
+        else:
+            game["history"].append(f"{author_name}: {actual_text}")
+            await message.add_reaction("👍")
 
 async def start_voting_phase():
     game["phase"] = "voting"
