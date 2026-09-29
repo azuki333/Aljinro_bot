@@ -15,7 +15,7 @@ try:
         AI_CHARACTERS, ROLE_EMOJIS, game, send_split_message, 
         call_llm, start_5min_timer, RoleCountSelectView, 
         setup_game, process_night_phase, generate_ai_discussion, 
-        start_voting_phase, Tally_and_finish, reset_game_state
+        step_watch_discussion, start_voting_phase, Tally_and_finish, reset_game_state
     )
     print("DEBUG: game_logic のインポートに成功しました！")
 except Exception as e:
@@ -120,7 +120,7 @@ async def on_message(message):
 
             if sub in ['next', '次']:
                 if game["is_running"] and game["mode"] == "watch":
-                    await generate_ai_discussion(is_watch=True)
+                    await step_watch_discussion(message.channel)
                 else:
                     await message.reply("⚠️ 現在、観戦モードの進行中ではありません。")
                 return
