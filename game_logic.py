@@ -140,6 +140,7 @@ async def start_5min_timer():
             await start_voting_phase()
     except asyncio.CancelledError: pass
 
+# --- 全役職のカスタム変更ボタン付きView ---
 class RoleCountSelectView(discord.ui.View):
     def __init__(self, mode, human_users):
         super().__init__(timeout=300)
@@ -148,17 +149,97 @@ class RoleCountSelectView(discord.ui.View):
         self.roles = dict(game["selected_roles"])
 
     def create_embed(self):
-        embed = discord.Embed(title="🎴 役職カスタム枚数設定", description="5人プレイ時は合計7枚にしてください。", color=discord.Color.blue())
+        embed = discord.Embed(
+            title="🎴 役職カスタム枚数設定", 
+            description="ボタンで各役職の枚数を増減させてください（5人プレイ時は合計7枚）。", 
+            color=discord.Color.blue()
+        )
         total = sum(self.roles.values())
         for r, c in self.roles.items(): 
             embed.add_field(name=f"{ROLE_EMOJIS.get(r,'')} {r}", value=f"**{c}**枚", inline=True)
-        embed.set_footer(text=f"合計枚数: {total}枚 (推奨: 7枚)")
+        embed.set_footer(text=f"現在の合計枚数: {total}枚 (推奨: 7枚)")
         return embed
 
-    @discord.ui.button(label="🚀 ゲーム開始！", style=discord.ButtonStyle.blurple, row=4)
+    async def update_message(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    # 動的にボタンを作るか、定義済みのボタンを配置する
+    @discord.ui.button(label="🐺人狼+", style=discord.ButtonStyle.danger, row=0)
+    async def p_werewolf(self, i: discord.Interaction, b: discord.ui.Button):
+        self.roles["人狼"] += 1; await self.update_message(i)
+
+    @discord.ui.button(label="🐺人狼-", style=discord.ButtonStyle.secondary, row=0)
+    async def m_werewolf(self, i: discord.Interaction, b: discord.ui.Button):
+        if self.roles["人狼"] > 0: self.roles["人狼"] -= 1
+        await self.update_message(i)
+
+    @discord.ui.button(label="👤市民+", style=discord.ButtonStyle.primary, row=0)
+    async def p_citizen(self, i: discord.Interaction, b: discord.ui.Button):
+        self.roles["市民"] += 1; await self.update_message(i)
+
+    @discord.ui.button(label="👤市民-", style=discord.ButtonStyle.secondary, row=0)
+    async def m_citizen(self, i: discord.Interaction, b: discord.ui.Button):
+        if self.roles["市民"] > 0: self.roles["市民"] -= 1
+        await self.update_message(i)
+
+    @discord.ui.button(label="🔮占い+", style=discord.ButtonStyle.success, row=1)
+    async def p_seer(self, i: discord.Interaction, b: discord.ui.Button):
+        self.roles["占い師"] += 1; await self.update_message(i)
+
+    @discord.ui.button(label="🔮占い-", style=discord.ButtonStyle.secondary, row=1)
+    async def m_seer(self, i: discord.Interaction, b: discord.ui.Button):
+        if self.roles["占い師"] > 0: self.roles["占い師"] -= 1
+        await self.update_message(i)
+
+    @discord.ui.button(label="🕵️怪盗+", style=discord.ButtonStyle.success, row=1)
+    async def p_thief(self, i: discord.Interaction, b: discord.ui.Button):
+        self.roles["怪盗"] += 1; await self.update_message(i)
+
+    @discord.ui.button(label="🕵️怪盗-", style=discord.ButtonStyle.secondary, row=1)
+    async def m_thief(self, i: discord.Interaction, b: discord.ui.Button):
+        if self.roles["怪盗"] > 0: self.roles["怪盗"] -= 1
+        await self.update_message(i)
+
+    @discord.ui.button(label="🎯狩人+", style=discord.ButtonStyle.blurple, row=2)
+    async def p_hunter(self, i: discord.Interaction, b: discord.ui.Button):
+        self.roles["狩人"] += 1; await self.update_message(i)
+
+    @discord.ui.button(label="🎯狩人-", style=discord.ButtonStyle.secondary, row=2)
+    async def m_hunter(self, i: discord.Interaction, b: discord.ui.Button):
+        if self.roles["狩人"] > 0: self.roles["狩人"] -= 1
+        await self.update_message(i)
+
+    @discord.ui.button(label="☀️てる+", style=discord.ButtonStyle.blurple, row=2)
+    async def p_teru(self, i: discord.Interaction, b: discord.ui.Button):
+        self.roles["てるてる"] += 1; await self.update_message(i)
+
+    @discord.ui.button(label="☀️てる-", style=discord.ButtonStyle.secondary, row=2)
+    async def m_teru(self, i: discord.Interaction, b: discord.ui.Button):
+        if self.roles["てるてる"] > 0: self.roles["てるてる"] -= 1
+        await self.update_message(i)
+
+    @discord.ui.button(label="🧙魔女+", style=discord.ButtonStyle.blurple, row=3)
+    async def p_witch(self, i: discord.Interaction, b: discord.ui.Button):
+        self.roles["魔女っ子"] += 1; await self.update_message(i)
+
+    @discord.ui.button(label="🧙魔女-", style=discord.ButtonStyle.secondary, row=3)
+    async def m_witch(self, i: discord.Interaction, b: discord.ui.Button):
+        if self.roles["魔女っ子"] > 0: self.roles["魔女っ子"] -= 1
+        await self.update_message(i)
+
+    @discord.ui.button(label="🤫狂人+", style=discord.ButtonStyle.blurple, row=3)
+    async def p_mad(self, i: discord.Interaction, b: discord.ui.Button):
+        self.roles["狂人"] += 1; await self.update_message(i)
+
+    @discord.ui.button(label="🤫狂人-", style=discord.ButtonStyle.secondary, row=3)
+    async def m_mad(self, i: discord.Interaction, b: discord.ui.Button):
+        if self.roles["狂人"] > 0: self.roles["狂人"] -= 1
+        await self.update_message(i)
+
+    @discord.ui.button(label="🚀 この設定でゲーム開始！", style=discord.ButtonStyle.green, row=4)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if sum(self.roles.values()) != 7:
-            await interaction.response.send_message("⚠️ 合計7枚にしてください。", ephemeral=True)
+            await interaction.response.send_message("⚠️ 役職の合計枚数は7枚にしてください（プレイヤー5人＋中央2枚）。", ephemeral=True)
             return
         await interaction.response.send_message("✨ セットアップ中...", ephemeral=True)
         game["selected_roles"] = dict(self.roles)
