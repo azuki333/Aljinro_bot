@@ -1,11 +1,15 @@
 import discord, asyncio, os
 import game_logic as logicpy
 
+# --- ボットのトークン設定 ---
+# 環境変数から読み込むか、ここに直接ダブルクォーテーションで貼り付けてもOKです
+TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+# 直接書き込む場合はこちらを使えます（GitHub等に公開する際はご注意ください）
+# TOKEN = "ここにあなたのDiscordボットのトークンを貼り付ける"
+
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
-
-TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 
 @client.event
 async def on_ready():
@@ -55,7 +59,7 @@ async def on_message(message):
             p_data = logicpy.game["players"][my_name]
             if content.startswith("!fortune "):
                 if p_data["role"] != "占い師":
-                    await message.channel.send("あなたす占い師ではありません。")
+                    await message.channel.send("あなたは占い師ではありません。")
                     return
                 target = content[9:].strip()
                 if target == "墓場":
@@ -103,7 +107,6 @@ async def on_message(message):
                 return
             logicpy.reset_game_state()
             await message.channel.send("👥 参加者を募集中...（参加したい人は `!join` と送信してください。ホストが `!start` で開始します）")
-            # 簡単な参加受付用のテンポラリ変数
             logicpy.game["pending_multi_host"] = message.author
             logicpy.game["pending_multi_users"] = [message.author]
             logicpy.game["phase"] = "recruiting"
@@ -133,7 +136,7 @@ async def on_message(message):
     # マルチモードの参加受付
     if content == "!join" and logicpy.game.get("phase") == "recruiting":
         user = message.author
-        if user not in logicpy.game["pending_multi_users"]:
+        if user not in logicpy.game.get("pending_multi_users", []):
             logicpy.game["pending_multi_users"].append(user)
             await message.channel.send(f"👤 {user.display_name} が参加しました！（現在 {len(logicpy.game['pending_multi_users'])}人）")
         return
@@ -152,4 +155,4 @@ if __name__ == "__main__":
     if not TOKEN:
         print("Error: DISCORD_BOT_TOKEN is missing.")
     else:
-      client.run(TOKEN)
+        client.run(TOKEN)
