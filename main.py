@@ -70,7 +70,6 @@ async def on_message(message):
                 await message.reply("現在参加しているゲームはありません。")
                 return
 
-            # 💡 修正: 夜、議論中、投票中のいずれかならDMコマンドを受け付けるようにする
             if game["phase"] not in ["night", "discussion", "voting"]:
                 await message.reply("現在は夜の行動時間（または投票時間）ではありません。")
                 return
@@ -108,18 +107,20 @@ async def on_message(message):
 
             if content.startswith('!vote') and game["phase"] == "voting":
                 t = content[5:].strip()
-                if t in game["players"] or t == "墓場":
+                if t in game["players"] or t == "墓場" or t == "平和":
                     game["votes"][p_name] = t
                     await message.reply(f"✅ **{t}** に投票しました！")
                     
-                    # 💡 人間プレイヤーが全員投票したかチェックし、残りのAIの投票を埋めて集計へ進む
                     human_names = [n for n, p in game["players"].items() if not p["is_ai"]]
                     voted_humans = [n for n in human_names if n in game["votes"]]
                     
                     if len(voted_humans) == len(human_names):
                         for n, p in game["players"].items():
                             if p["is_ai"] and n not in game["votes"]:
-                                game["votes"][n] = random.choice([k for k in game["players"] if k != n])
+                                if random.random() < 0.2:
+                                    game["votes"][n] = "平和"
+                                else:
+                                    game["votes"][n] = random.choice([k for k in game["players"] if k != n])
                         
                         if len(game["votes"]) == len(game["players"]):
                             await Tally_and_finish()
@@ -162,7 +163,6 @@ async def on_message(message):
                 await message.channel.send(embed=view.create_embed(), view=view)
                 return
 
-            # マルチモード募集開始
             if sub == "multi":
                 if game["is_running"]:
                     await message.reply("⚠️ ゲームが既に進行中です。")
@@ -175,13 +175,11 @@ async def on_message(message):
                 await message.reply("👥 **マルチモード参加者募集中！**\n参加したい人は `!join` と送信してください。\nホストは準備ができたら `!start` で役職選択へ進んでください。")
                 return
 
-            # 💡 議論中の発言処理
             if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
                 actual_text = content[6:].strip() or "（進行）"
                 await handle_jinro_command(message, actual_text, message.author.display_name)
                 return
 
-        # マルチモードの参加受付 (`!join`)
         if content == "!join" and game.get("phase") == "recruiting":
             user = message.author
             if user not in game.get("pending_multi_users", []):
@@ -189,7 +187,6 @@ async def on_message(message):
                 await message.channel.send(f"👤 **{user.display_name}** が参加しました！（現在 {len(game['pending_multi_users'])}人）")
             return
 
-        # マルチモードのゲーム開始 (`!start`)
         if content == "!start" and game.get("phase") == "recruiting":
             if message.author == game.get("pending_multi_host"):
                 users = game["pending_multi_users"]
