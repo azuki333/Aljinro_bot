@@ -1,5 +1,5 @@
 import discord, asyncio, os
-import logicpy
+import game_logic as logicpy
 
 intents = discord.Intents.default()
 intents.message_content = True
