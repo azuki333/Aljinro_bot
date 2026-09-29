@@ -5,11 +5,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 HTTP_HEADERS = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
 AI_CHARACTERS = [
-    {"name": "レン", "desc": "20代男性。冷静沈着で論理的。矛盾や怪しい発言を見逃さず詰めるタイプ。"},
-    {"name": "ユイ", "desc": "17歳女子高生。直感重視で天然だが直感が当たる。"},
-    {"name": "Gemini-A", "desc": "確率とログ分析重視の分析派。"},
-    {"name": "Gemini-B", "desc": "心理戦が得意なブラフ担当。"},
-    {"name": "タクミ", "desc": "30代ベテラン。盤面を乱して様子を見る戦略派。"}
+    {"name": "アル", "desc": "20代男性。冷静な論理派。客観的なデータと事実を元に、矛盾のない綺麗な推理を組み立てる。"},
+    {"name": "レイ", "desc": "25歳男性。冷静な策士。表向きは普通に見せかけつつ、裏で盤面をコントロールしようとする。"},
+    {"name": "ジン", "desc": "22歳男性。大胆な議論派。自分の意見をハッキリ主張し、議論の雰囲気をグイグイ引っ張る。"},
+    {"name": "シェスタ", "desc": "19歳女性。社交的な議論派。場を和ませつつ、上手に他の人から情報を引き出すのが得意。"},
+    {"name": "ルナ", "desc": "24歳女性。心理戦が得意な策士。あえて嘘（ブラフ）を混ぜたり、相手の反応を面白がる。"}
 ]
 
 ROLE_EMOJIS = {
@@ -176,7 +176,7 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
-async def setup_game(channel, mode, human_users=None):
+ async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
         "is_running": True, "mode": mode, "phase": "night", "channel": channel,
@@ -341,4 +341,4 @@ async def Tally_and_finish():
     for n, p in game["players"].items():
         res += f"・{n}: 『{p['role']}』\n"
     res += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
-    await send_split_message(game["channel"], res)        
+    await send_split_message(game["channel"], res)       
