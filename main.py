@@ -70,7 +70,11 @@ async def on_message(message):
                 await message.reply("現在参加しているゲームはありません。")
                 return
 
-            if content.startswith('!fortune') and game["phase"] == "night":
+            if game["phase"] not in ["night", "discussion"]:
+                await message.reply("現在は夜の行動時間ではありません。")
+                return
+
+            if content.startswith('!fortune'):
                 t = content[8:].strip()
                 if t == "墓場":
                     await message.reply(f"🔮 墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』")
@@ -78,7 +82,7 @@ async def on_message(message):
                     await message.reply(f"🔮 {t} の役職は『{game['players'][t]['role']}』です。")
                 return
 
-            if content.startswith('!steal') and game["phase"] == "night":
+            if content.startswith('!steal'):
                 t = content[6:].strip()
                 if t in game["players"] and t != p_name:
                     my_old = game["players"][p_name]["role"]
@@ -88,14 +92,14 @@ async def on_message(message):
                     await message.reply(f"🎭 {t} から役職を盗みました！ 新役職: 『{game['players'][p_name]['role']}』")
                 return
 
-            if content.startswith('!hunt') and game["phase"] == "night":
+            if content.startswith('!hunt'):
                 t = content[6:].strip()
                 if t in game["players"] and t != p_name:
                     game["hunter_targets"][p_name] = t
                     await message.reply(f"🎯 狩人能力: {t} を指定しました。")
                 return
 
-            if content.startswith('!witch') and game["phase"] == "night":
+            if content.startswith('!witch'):
                 t = content[7:].strip()
                 if t in game["players"]:
                     await message.reply(f"🧙 魔女っ子能力: {t} の役職は『{game['players'][t]['role']}』です。")
@@ -160,7 +164,7 @@ async def on_message(message):
                 await message.reply("👥 **マルチモード参加者募集中！**\n参加したい人は `!join` と送信してください。\nホストは準備ができたら `!start` で役職選択へ進んでください。")
                 return
 
-            # 💡 議論中の発言処理（ここで handle_jinro_command を呼び出すように修正）
+            # 💡 議論中の発言処理
             if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
                 actual_text = content[6:].strip() or "（進行）"
                 await handle_jinro_command(message, actual_text, message.author.display_name)
