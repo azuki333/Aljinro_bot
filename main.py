@@ -1,160 +1,104 @@
 import discord
-import urllib.request
-import urllib.error
-import json
-import asyncio
+from discord.ext import commands
 import os
-import random
-import traceback
+import game_logic
 
-print("DEBUG: モジュールのインポートを開始します...")
-
-# --- 各種モジュールのインポート ---
-try:
-    from game_logic import (
-        AI_CHARACTERS, ROLE_EMOJIS, game, send_split_message, 
-        call_llm, start_5min_timer, RoleCountSelectView, 
-        setup_game, process_night_phase, generate_ai_discussion, 
-        step_watch_discussion, start_voting_phase, Tally_and_finish, reset_game_state
-    )
-    print("DEBUG: game_logic のインポートに成功しました！")
-except Exception as e:
-    print(f"CRITICAL ERROR: game_logic のインポートに失敗しました: {e}")
-    traceback.print_exc()
-
-# --- Discord Client 設定 ---
+# Discordのインテント（権限）設定
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-client = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- 環境変数の取得 ---
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
-
-@client.event
+@bot.event
 async def on_ready():
-    print(f'🤖 起動完了: {client.user.name} (ID: {client.user.id})')
+    print(f"ログインしました: {bot.user} (ID: {bot.user.id})")
+    print("ワンナイト人狼ボットが準備完了しました！")
 
-@client.event
+@bot.event
 async def on_message(message):
-    global game
+    # ボット自身のメッセージは無視
     if message.author.bot:
         return
-    content = message.content.strip()
 
-    try:
-        if content == '!help':
-            await message.reply("🤖 コマンド: `!jinro solo`, `!jinro multi`, `!jinro watch`, `!chat`, `!test`")
+    # 夜の行動コマンド（!fortune, !steal, !hunt, !witch 等）がDMやチャンネルで打たれた場合
+    if message.content.startswith("!") and game_logic.game["phase"] == "night":
+        await game_logic.handle_night_commands(message)
+        return
+
+    # 通常のコマンド処理を実行できるようにする
+    await bot.process_commands(message)
+
+# ==================== ゲーム起動・操作コマンド ====================
+
+@bot.command(name="jinro")
+async def jinro(ctx, action: str = None, mode: str = "solo"):
+    """ワンナイト人狼を開始・操作するメインコマンド"""
+    
+    # 1. ゲーム開始
+    if action == "start":
+        if game_logic.game["is_running"]:
+            await ctx.send("⚠️ すでにゲームが実行中です。リセットするには `!jinro reset` を打ってください。")
             return
+        
+        # 役職カスタム設定画面を表示
+        view = game_logic.RoleCountSelectView(mode=mode, interaction_user=ctx.author)
+        embed = view.create_embed()
+        await ctx.send("🎴 **役職の枚数を設定してください**", embed=embed, view=view)
 
-        if content == '!test':
-            async with message.channel.typing():
-                res = await call_llm("「テスト成功」と返答してください。", debug=True)
-                await send_split_message(message.channel, res)
+    # 2. 観戦モードなどの進行（次へ）
+    elif action == "next":
+        if not game_logic.game["is_running"]:
+            await ctx.send("⚠️ 現在進行中のゲームはありません。")
             return
+        
+        if game_logic.game["mode"] == "watch" and game_logic.game["phase"] == "discussion":
+            await game_logic.step_watch_discussion(ctx.channel)
+        else:
+            await ctx.send("⚠️ 現在のフェイズでは `!jinro next` は使用できません。")
 
-        if content.startswith('!chat'):
-            q = content[5:].strip()
-            if q:
-                async with message.channel.typing():
-                    reply = await call_llm(f"ユーザーへ返答: {q}")
-                    if reply:
-                        await send_split_message(message.channel, reply)
-            return
+    # 3. 強制リセット
+    elif action == "reset":
+        game_logic.reset_game_state()
+        await ctx.send("🔄 ゲームの状態を強制リセットしました。")
 
-        if isinstance(message.channel, discord.DMChannel):
-            p_name = message.author.display_name
-            if content.startswith('!fortune') and game["is_running"]:
-                t = content[8:].strip()
-                if t == "墓場":
-                    await message.reply(f"🔮 墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』")
-                elif t in game["players"]:
-                    await message.reply(f"🔮 {t} の役職は『{game['players'][t]['role']}』です。")
-                return
-
-            if content.startswith('!steal') and game["is_running"]:
-                t = content[6:].strip()
-                if t in game["players"] and t != p_name:
-                    game["players"][p_name]["role"], game["players"][t]["role"] = game["players"][t]["role"], game["players"][p_name]["role"]
-                    await message.reply(f"🎭 {t} と交換しました。新役職: 『{game['players'][p_name]['role']}』")
-                return
-
-            if content.startswith('!hunt') and game["is_running"]:
-                t = content[6:].strip()
-                if t in game["players"] and t != p_name:
-                    game["hunter_targets"][p_name] = t
-                    await message.reply(f"🎯 狩人能力: {t} を指定しました。")
-                return
-
-            if content.startswith('!witch') and game["is_running"]:
-                t = content[7:].strip()
-                if t in game["players"]:
-                    await message.reply(f"🧙 魔女っ子能力: {t} の役職は『{game['players'][t]['role']}』です。")
-                return
-
-            if content.startswith('!vote') and game["phase"] == "voting":
-                t = content[5:].strip()
-                if t in game["players"]:
-                    game["votes"][p_name] = t
-                    await message.reply(f"✅ {t} に投票しました！")
-                    if all(h in game["votes"] for h, pl in game["players"].items() if not pl["is_ai"]):
-                        await Tally_and_finish()
-                return
-
-        if content.startswith('!jinro'):
-            parts = content[6:].strip().split(maxsplit=1)
-            sub = parts[0].lower() if len(parts) > 0 else ""
-
-            if sub in ['clear', 'リセット']:
-                reset_game_state()
-                await message.reply('🔄 リセットしました！')
-                return
-
-            if sub in ['watch', '観戦']:
-                if game["is_running"]:
-                    await message.reply("⚠️ ゲームが既に進行中です。")
-                    return
-                await setup_game(message.channel, "watch")
-                return
-
-            if sub in ['next', '次']:
-                if game["is_running"] and game["mode"] == "watch":
-                    await step_watch_discussion(message.channel)
-                else:
-                    await message.reply("⚠️ 現在、観戦モードの進行中ではありません。")
-                return
-
-            if sub == "solo":
-                if game["is_running"]:
-                    await message.reply("⚠️ ゲームが既に進行中です。")
-                    return
-                view = RoleCountSelectView("solo", [message.author])
-                await message.channel.send(embed=view.create_embed(), view=view)
-                return
-
-            if sub in ["start", "multi"]:
-                if game["is_running"]:
-                    await message.reply("⚠️ ゲームが既に進行中です。")
-                    return
-                humans = [message.author] + message.mentions
-                mode = "solo" if len(humans) == 1 else "multi"
-                view = RoleCountSelectView(mode, humans)
-                await message.channel.send(embed=view.create_embed(), view=view)
-                return
-
-            if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
-                actual_text = content[6:].strip() or "（進行）"
-                await generate_ai_discussion(user_input=f"{message.author.display_name}: {actual_text}")
-
-    except Exception as e:
-        print(f"[Error in on_message]: {e}")
-        traceback.print_exc()
-
-if __name__ == "__main__":
-    print(f"DEBUG: DISCORD_TOKEN の長さ: {len(DISCORD_TOKEN)}")
-    if len(DISCORD_TOKEN) == 0:
-        print("CRITICAL ERROR: DISCORD_TOKEN が設定されていません！Renderの Environment を確認してください。")
+    # 4. ヘルプ・使い方の表示
     else:
-        print("DEBUG: Discordへ接続を開始します...")
-        client.run(DISCORD_TOKEN)
+        embed = discord.Embed(
+            title="🐺 ワンナイト人狼 へようこそ！",
+            description="コマンドの使い方一覧です。",
+            color=discord.Color.purple()
+        )
+        embed.add_field(
+            name="🎮 ゲーム開始",
+            value="`!jinro start` (または `!jinro start solo`)\n役職カスタム画面が表示され、設定後にゲームが始まります。",
+            inline=False
+        )
+        embed.add_field(
+            name="👀 観戦モード開始",
+            value="`!jinro start watch`\nAI同士の対戦を観戦できます (`!jinro next` で進行)",
+            inline=False
+        )
+        embed.add_field(
+            name="🌙 夜の能力コマンド (DM推奨)",
+            value=(
+                "- 占い師: `!fortune [プレイヤー名 / 墓場]`\n"
+                "- 怪盗: `!steal [プレイヤー名]`\n"
+                "- 狩人: `!hunt [プレイヤー名]`\n"
+                "- 魔女っ子: `!witch [プレイヤー名]`"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="🔄 リセット",
+            value="`!jinro reset`",
+            inline=False
+        )
+        await ctx.send(embed=embed)
+
+# ボットの起動（Discordトーン保持）
+TOKEN = os.getenv("DISCORD_TOKEN")
+if TOKEN:
+    bot.run(TOKEN)
+else:
+    print("❌ エラー: DISCORD_TOKEN の環境変数が設定されていません。")
