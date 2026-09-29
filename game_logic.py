@@ -146,7 +146,7 @@ class RoleCountSelectView(discord.ui.View):
     def __init__(self, mode, human_users):
         super().__init__(timeout=300)
         self.mode = mode
-        self.human_users = human_users
+        self.human_users = human_users or []
         self.roles = dict(game["selected_roles"])
 
     def create_embed(self):
@@ -257,7 +257,13 @@ class RoleCountSelectView(discord.ui.View):
         await interaction.response.send_message("✨ セットアップ中...", ephemeral=True)
         game["selected_roles"] = dict(self.roles)
         self.stop()
-        asyncio.create_task(setup_game(interaction.channel, self.mode, self.human_users))
+        
+        # interaction.user を確実に含めるように補正
+        users = self.human_users
+        if not users and interaction.user:
+            users = [interaction.user]
+        
+        asyncio.create_task(setup_game(interaction.channel, self.mode, users))
 
 async def setup_game(channel, mode="solo", human_users=None):
     reset_game_state()
@@ -266,12 +272,16 @@ async def setup_game(channel, mode="solo", human_users=None):
     game["phase"] = "night"
     game["channel"] = channel
 
+    human_users = human_users or []
+
     if mode == "watch":
         names = [c["name"] for c in AI_CHARACTERS]
     elif mode == "solo":
-        names = ["あなた"] + [c["name"] for c in AI_CHARACTERS]
+        # human_users が空でも interaction.user が渡ってこない場合の保険として fallback 名を使用
+        human_name = human_users[0].display_name if len(human_users) > 0 else "あなた"
+        names = [human_name] + [c["name"] for c in AI_CHARACTERS]
     else:
-        names = [u.display_name for u in (human_users or [])] + [c["name"] for c in AI_CHARACTERS]
+        names = [u.display_name for u in human_users] + [c["name"] for c in AI_CHARACTERS]
 
     selected_ai_chars = list(AI_CHARACTERS)
     random.shuffle(selected_ai_chars)
@@ -286,9 +296,13 @@ async def setup_game(channel, mode="solo", human_users=None):
             is_ai = True
             user_obj = None
             ai_info = selected_ai_chars.pop(0)
+        elif mode == "solo":
+            is_ai = (i > 0)
+            user_obj = human_users[0] if (not is_ai and len(human_users) > 0) else None
+            ai_info = selected_ai_chars.pop(0) if is_ai else None
         else:
-            is_ai = (i > 0) if mode == "solo" else (i >= len(human_users))
-            user_obj = (human_users[0] if mode == "solo" and i == 0 else human_users[i]) if not is_ai else None
+            is_ai = (i >= len(human_users))
+            user_obj = human_users[i] if (not is_ai and i < len(human_users)) else None
             ai_info = selected_ai_chars.pop(0) if is_ai else None
 
         game["players"][name] = {
@@ -322,7 +336,7 @@ async def setup_game(channel, mode="solo", human_users=None):
                     )
                 except Exception as e:
                     print(f"[DM送信エラー] {p['name']} への送信に失敗しました: {e}")
-                    await channel.send(f"⚠️ {p['user'].mention} へのDM送信に失敗しました。DMの設定を確認してください。")
+                    await channel.send(f"⚠️ {p['user'].mention} へのDM送信に失敗しました。フレンド外からのDMが許可されているかご確認ください。")
 
     await asyncio.sleep(3)
     await process_night_phase(channel)
