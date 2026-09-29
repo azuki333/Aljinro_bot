@@ -1,11 +1,13 @@
 import discord, asyncio, os
+from dotenv import load_dotenv
+
+# .env ファイルから環境変数を安全に読み込む
+load_dotenv()
+
 import game_logic as logicpy
 
-# --- ボットのトークン設定 ---
-# 環境変数から読み込むか、ここに直接ダブルクォーテーションで貼り付けてもOKです
+# 環境変数からDiscordボットのトークンを取得
 TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
-# 直接書き込む場合はこちらを使えます（GitHub等に公開する際はご注意ください）
-# TOKEN = "ここにあなたのDiscordボットのトークンを貼り付ける"
 
 intents = discord.Intents.default()
 intents.message_content = True
