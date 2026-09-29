@@ -288,7 +288,7 @@ async def start_voting_phase():
             game["votes"][n] = random.choice([k for k in game["players"] if k != n])
     if len([n for n, p in game["players"].items() if not p["is_ai"]]) == 0:
         await asyncio.sleep(2)
-        await Taly_and_finish()
+        await Tally_and_finish()
 
 async def Tally_and_finish():
     game["phase"] = "ended"
