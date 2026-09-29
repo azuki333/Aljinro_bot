@@ -4,6 +4,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 HTTP_HEADERS = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
+# ── 5人のAIの性格付け（ご要望の最新設定） ──
 AI_CHARACTERS = [
     {"name": "アル", "desc": "20代男性。冷静な論理派。客観的なデータと事実を元に、矛盾のない綺麗な推理を組み立てる。"},
     {"name": "レイ", "desc": "25歳男性。冷静な策士。表向きは普通に見せかけつつ、裏で盤面をコントロールしようとする。"},
