@@ -4,15 +4,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 HTTP_HEADERS = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
-# ── 5人のAIの性格付け（個別設定） ──
-AI_CHARACTERS = [
-    {"name": "アル", "desc": "20代男性。冷静な論理派。客観的なデータと事実を元に、矛盾のない綺麗な推理を組み立てる。"},
-    {"name": "レイ", "desc": "25歳男性。冷静な策士。表向きは普通に見せかけつつ、裏で盤面をコントロールしようとする。"},
-    {"name": "ジン", "desc": "22歳男性。大胆な議論派。自分の意見をハッキリ主張し、議論の雰囲気をグイグイ引っ張る。"},
-    {"name": "シェスタ", "desc": "19歳女性。社交的な議論派。場を和ませつつ、上手に他の人から情報を引き出すのが得意。"},
-    {"name": "ルナ", "desc": "24歳女性。心理戦が得意な策士。あえて嘘（ブラフ）を混ぜたり、相手の反応を面白がる。"}
-]
-
 ROLE_EMOJIS = {
     "人狼": "🐺", "市民": "👤", "占い師": "🔮", "怪盗": "🕵️", 
     "狩人": "🎯", "てるてる": "☀️", "魔女っ子": "🧙‍♀️", "狂人": "🤫"
@@ -81,15 +72,13 @@ async def generate_ai_discussion(is_watch=False, user_input=None):
     ai_players_list = [p for p in game["players"].values() if p["is_ai"]]
     if not ai_players_list: return
     ai_p = random.choice(ai_players_list)
-    char_info = ai_p.get("ai_char", {"name": ai_p["name"], "desc": "普通のAIプレイヤー"})
     
     prompt = f"""
-あなたはワンナイト人狼のAIプレイヤーです。
-キャラクター設定: {char_info['name']} - {char_info['desc']}
+あなたはワンナイト人狼のAIプレイヤー（名前: {ai_p['name']}）です。
 あなたの本当の役職: {ai_p['role']}
 これまでの状況: {json.dumps(game['history'][-5:], ensure_ascii=False)}
 {f"直前のプレイヤーの発言: {user_input}" if user_input else ""}
-会話のトーンを守り、短く自然な日本語で1つ発言してください（2文以内）。名前は不要です。
+短く自然な日本語で1つ発言してください（2文以内）。名前は不要です。
 """
     res = await call_llm(prompt)
     if res and game["channel"]:
@@ -112,14 +101,12 @@ async def step_watch_discussion(channel):
     if game["watch_turn_index"] < max_turns:
         current_turn = game["watch_turn_index"] + 1
         ai_p = ai_players[game["watch_turn_index"] % len(ai_players)]
-        char_info = ai_p.get("ai_char", {"name": ai_p["name"], "desc": "普通のAI"})
         
         prompt = f"""
-あなたはワンナイト人狼のAIプレイヤーです（観戦モード・第{current_turn}ターン目）。
-キャラクター設定: {char_info['name']} - {char_info['desc']}
+あなたはワンナイト人狼のAIプレイヤー（観戦モード・第{current_turn}ターン目、名前: {ai_p['name']}）です。
 あなたの本当の役職: {ai_p['role']}
 これまでの状況: {json.dumps(game['history'][-5:], ensure_ascii=False)}
-会話のトーンを守り、短く自然な日本語で1つ発言してください（2文以内）。名前は不要です。
+短く自然な日本語で1つ発言してください（2文以内）。名前は不要です。
 """
         res = await call_llm(prompt)
         if res:
@@ -145,12 +132,13 @@ async def start_5min_timer():
             await start_voting_phase()
     except asyncio.CancelledError: pass
 
-# --- 役職カスタムView ---
 class RoleCountSelectView(discord.ui.View):
-    def __init__(self, mode, human_users):
+    def __init__(self, mode, human_users=None, interaction_user=None):
         super().__init__(timeout=300)
         self.mode = mode
-        self.human_users = human_users or []
+        self.human_users = list(human_users) if human_users else []
+        if interaction_user and interaction_user not in self.human_users:
+            self.human_users.append(interaction_user)
         self.roles = dict(game["selected_roles"])
 
     def create_embed(self):
@@ -257,10 +245,11 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         
-        users = self.human_users if self.human_users else [interaction.user]
+        users = self.human_users if self.human_users else []
+        if interaction.user not in users:
+            users.insert(0, interaction.user)
+            
         asyncio.create_task(setup_game(interaction.channel, self.mode, users))
-
-# --- ワンナイト人狼セットアップ ---
 async def setup_game(channel, mode="solo", human_users=None):
     reset_game_state()
     game["is_running"] = True
@@ -268,44 +257,35 @@ async def setup_game(channel, mode="solo", human_users=None):
     game["phase"] = "night"
     game["channel"] = channel
 
-    human_users = human_users or []
+    if not human_users:
+        human_users = []
+
+    ai_names = ["アル", "レイ", "ジン", "シェスタ", "ルナ"]
 
     if mode == "watch":
-        player_names = [c["name"] for c in AI_CHARACTERS]
+        player_names = ai_names
     elif mode == "solo":
-        human_user = human_users[0] if len(human_users) > 0 else (channel.guild.get_member(channel.recipient.id) if hasattr(channel, 'recipient') and channel.recipient else None)
+        human_user = human_users[0] if len(human_users) > 0 else None
         human_name = human_user.display_name if human_user else "あなた"
-        player_names = [human_name] + [c["name"] for c in AI_CHARACTERS]
+        player_names = [human_name] + ai_names
     else:
-        player_names = [u.display_name for u in human_users] + [c["name"] for c in AI_CHARACTERS]
+        player_names = [u.display_name for u in human_users] + ai_names
 
     pool = []
     for r, count in game["selected_roles"].items():
         pool.extend([r] * count)
     random.shuffle(pool)
 
-    available_ai_chars = list(AI_CHARACTERS)
-    random.shuffle(available_ai_chars)
-
     for i, name in enumerate(player_names):
         if mode == "watch":
             is_ai = True
             user_obj = None
-            ai_info = available_ai_chars.pop(0)
         elif mode == "solo":
             is_ai = (i > 0)
-            if not is_ai:
-                user_obj = human_users[0] if len(human_users) > 0 else None
-                if not user_obj and hasattr(channel, 'guild') and channel.guild:
-                    # もしコマンド実行者が取れない場合のフォールバック
-                    pass
-            else:
-                user_obj = None
-            ai_info = available_ai_chars.pop(0) if is_ai else None
+            user_obj = human_users[0] if (not is_ai and len(human_users) > 0) else None
         else:
             is_ai = (i >= len(human_users))
             user_obj = human_users[i] if (not is_ai and i < len(human_users)) else None
-            ai_info = available_ai_chars.pop(0) if is_ai else None
 
         game["players"][name] = {
             "name": name,
@@ -313,7 +293,6 @@ async def setup_game(channel, mode="solo", human_users=None):
             "original_role": pool[i],
             "is_ai": is_ai,
             "user": user_obj,
-            "ai_char": ai_info,
             "alive": True
         }
 
@@ -323,33 +302,37 @@ async def setup_game(channel, mode="solo", human_users=None):
     if mode == "watch":
         await channel.send("👀 **観戦モード開始**：AIたちによるワンナイト人狼を開始します。\n👉 `!jinro next` を打つと、1ターンずつ議論が進みます（全5ターン）。")
     else:
-        await channel.send("🌙 **夜が訪れました…プレイヤー全員の役職が配られました。**\n各自、自身の役職をDMで確認してください。")
+        await channel.send("🌙 **夜が訪れました…プレイヤー全員の役職が配られました。**\n各自、自身の役職をDMで確認してください（DMが届かない場合は、下のシークレット表示でも確認できます）。")
         for p in game["players"].values():
             if not p["is_ai"] and p["user"]:
+                role_name = p["role"]
+                emoji = ROLE_EMOJIS.get(role_name, "")
+                dm_content = (
+                    f"🌙 **ワンナイト人狼が始まりました！**\n"
+                    f"あなたの役職は **{emoji} {role_name}** です。\n\n"
+                    f"能力コマンド例:\n"
+                    f"- 占い師: `!fortune [プレイヤー名 / 墓場]`\n"
+                    f"- 怪盗: `!steal [プレイヤー名]`\n"
+                    f"- 狩人: `!hunt [プレイヤー名]`\n"
+                    f"- 魔女っ子: `!witch [プレイヤー名]`"
+                )
                 try:
                     dm_channel = await p["user"].create_dm()
-                    role_name = p["role"]
-                    emoji = ROLE_EMOJIS.get(role_name, "")
-                    await dm_channel.send(
-                        f"🌙 **ワンナイト人狼が始まりました！**\n"
-                        f"あなたの役職は **{emoji} {role_name}** です。\n\n"
-                        f"能力コマンド例:\n"
-                        f"- 占い師: `!fortune [プレイヤー名 / 墓場]`\n"
-                        f"- 怪盗: `!steal [プレイヤー名]`\n"
-                        f"- 狩人: `!hunt [プレイヤー名]`\n"
-                        f"- 魔女っ子: `!witch [プレイヤー名]`"
-                    )
+                    await dm_channel.send(dm_content)
                 except Exception as e:
                     print(f"[DM送信エラー] {e}")
-                    await channel.send(f"⚠️ {p['user'].mention} へのDM送信に失敗しました（DMの設定を確認してください）。")
+                    try:
+                        await channel.send(f"⚠️ {p['user'].mention} さんのDMに送信できなかったため、あなた専用にここに表示します：\n{dm_content}", ephemeral=True)
+                    except:
+                        pass
 
     await asyncio.sleep(3)
     await process_night_phase(channel)
 
 async def process_night_phase(channel):
     game["phase"] = "night"
-    await channel.send("🔮 **【夜の行動フェイズ】** 各種役職が能力を使用しています...")
-    await asyncio.sleep(3)
+    await channel.send("🔮 **【夜の行動フェイズ】** 各種役職が能力を使用しています...\n（人間プレイヤーはDM等で能力コマンドを実行してください。10秒後に朝になります）")
+    await asyncio.sleep(10)
     await start_discussion_phase(channel)
 
 async def start_discussion_phase(channel):
@@ -371,7 +354,7 @@ async def ai_chatter_loop(channel):
 
 async def start_voting_phase():
     if game["phase"] == "voting": return
-    game["phase"] == "voting"
+    game["phase"] = "voting"
     if game["discussion_task"]: game["discussion_task"].cancel()
     
     embed = discord.Embed(title="🗳️ 投票タイム", description="誰を生け贄（人狼）として処刑するか投票してください！", color=discord.Color.gold())
@@ -404,3 +387,104 @@ async def Tally_and_finish():
     embed = discord.Embed(title="🎉 ゲーム終了 - ワンナイト人狼", description=result_desc, color=discord.Color.green())
     await game["channel"].send(embed=embed)
     reset_game_state()
+
+async def handle_night_commands(message):
+    if game["phase"] != "night":
+        await message.reply("⚠️ 現在は夜の行動フェイズではありません。")
+        return
+
+    author = message.author
+    p_data = None
+    for p in game["players"].values():
+        if p["user"] and p["user"].id == author.id:
+            p_data = p
+            break
+
+    if not p_data:
+        await message.reply("⚠️ あなたは現在のゲームに参加していないか、AIプレイヤーです。")
+        return
+
+    content = message.content.strip()
+    parts = content.split(" ")
+    cmd = parts[0].lower()
+    arg = parts[1] if len(parts) > 1 else ""
+
+    if cmd == "!fortune":
+        if p_data["role"] != "占い師":
+            await message.reply("⚠️ あなたの役職は占い師ではありません。")
+            return
+        if not arg:
+            await message.reply("⚠️ 占う対象を指定してください。（例: `!fortune アル` または `!fortune 墓場`）")
+            return
+        
+        if arg in ["墓場", "中央", "center"]:
+            c1, c2 = game["center_cards"]
+            await message.author.send(f"🔮 中央のカード（2枚）は **{c1}** と **{c2}** です。")
+            await message.reply("🔮 中央のカードを占いました（DMをご確認ください）。")
+        else:
+            target_p = game["players"].get(arg)
+            if not target_p:
+                await message.reply(f"⚠️ プレイヤー「{arg}」が見つかりません。")
+                return
+            if target_p["name"] == p_data["name"]:
+                await message.reply("⚠️ 自分自身は占えません。")
+                return
+            await message.author.send(f"🔮 **{target_p['name']}** の役職は **{target_p['role']}** です。")
+            await message.reply(f"🔮 **{target_p['name']}** の役職を占いました（DMをご確認ください）。")
+
+    elif cmd == "!steal":
+        if p_data["role"] != "怪盗":
+            await message.reply("⚠️ あなたの役職は怪盗ではありません。")
+            return
+        if not arg:
+            await message.reply("⚠️ 盗む相手のプレイヤーを指定してください。（例: `!steal レイ`）")
+            return
+        
+        target_p = game["players"].get(arg)
+        if not target_p:
+            await message.reply(f"⚠️ プレイヤー「{arg}」が見つかりません。")
+            return
+        if target_p["name"] == p_data["name"]:
+            await message.reply("⚠️ 自分から盗むことはできません。")
+            return
+        
+        old_role = p_data["role"]
+        p_data["role"] = target_p["role"]
+        target_p["role"] = old_role
+        
+        await message.author.send(f"🕵️ **{target_p['name']}** から役職を盗みました！ あなたの新しい役職は **{p_data['role']}** です。")
+        await message.reply(f"🕵️ 能力を行使しました（DMをご確認ください）。")
+
+    elif cmd == "!hunt":
+        if p_data["role"] != "狩人":
+            await message.reply("⚠️ あなたの役職は狩人ではありません。")
+            return
+        if not arg:
+            await message.reply("⚠️ 守る相手を指定してください。（例: `!hunt ジン`）")
+            return
+        target_p = game["players"].get(arg)
+        if not target_p:
+            await message.reply(f"⚠️ プレイヤー「{arg}」が見つかりません。")
+            return
+        game["hunter_targets"][p_data["name"]] = target_p["name"]
+        await message.reply(f"🎯 **{target_p['name']}** を守る対象に設定しました。")
+
+    elif cmd == "!witch":
+        if p_data["role"] != "魔女っ子":
+            await message.reply("⚠️ あなたの役職は魔女っ子ではありません。")
+            return
+        if not arg:
+            await message.reply("⚠️ 能力を使う相手を指定してください。（例: `!witch ルナ`）")
+            return
+        target_p = game["players"].get(arg)
+        if not target_p:
+            await message.reply(f"⚠️ プレイヤー「{arg}」が見つかりません。")
+            return
+        
+        c_idx = random.randint(0, 1)
+        old_center = game["center_cards"][c_idx]
+        game["center_cards"][c_idx] = target_p["role"]
+        target_p["role"] = old_center
+        
+        await message.author.send(f"🧙‍♀️ **{target_p['name']}** の役職は **{target_p['role']}** でした。中央のカードと1枚入れ替えました。")
+        await message.reply(f"🧙‍♀️ 魔女っ子の能力を行使しました（DMをご確認ください）。")        
