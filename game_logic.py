@@ -176,7 +176,7 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
-        async def setup_game(channel, mode, human_users=None):
+async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
         "is_running": True, "mode": mode, "phase": "night", "channel": channel,
@@ -205,7 +205,7 @@ class RoleCountSelectView(discord.ui.View):
         }
 
     if mode == "watch":
-        await channel.send("🍿 **観戦モード開始！** `!jinro next` で進みます。")
+        await channel.send("🍿 **観戦モード開始！** `!jinro next` で次のターンへ進みます。")
     else:
         await channel.send("🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。")
     await process_night_phase()
@@ -288,7 +288,7 @@ async def start_voting_phase():
             game["votes"][n] = random.choice([k for k in game["players"] if k != n])
     if len([n for n, p in game["players"].items() if not p["is_ai"]]) == 0:
         await asyncio.sleep(2)
-        await Tally_and_finish()
+        await Taly_and_finish()
 
 async def Tally_and_finish():
     game["phase"] = "ended"
@@ -341,4 +341,4 @@ async def Tally_and_finish():
     for n, p in game["players"].items():
         res += f"・{n}: 『{p['role']}』\n"
     res += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
-    await send_split_message(game["channel"], res)
+    await send_split_message(game["channel"], res)        
