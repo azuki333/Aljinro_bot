@@ -212,10 +212,14 @@ async def setup_game(channel, mode, human_users=None):
             "role": role, "original_role": role, "desc": p.get("desc", "")
         }
 
+    # 参加プレイヤー一覧の生成
+    member_list_text = "👥 **【参加プレイヤー一覧】**\n" + "\n".join([f"・{n} ({'AI' if p['is_ai'] else '人間'})" for n, p in game["players"].items()])
+
     if mode == "watch":
-        await channel.send("🍿 **観戦モード開始！** `!jinro next` で次のターンへ進みます。")
+        await channel.send(f"🍿 **観戦モード開始！** `!jinro next` で次のターンへ進みます。\n\n{member_list_text}")
     else:
-        await channel.send("🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。")
+        await channel.send(f"🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。\n\n{member_list_text}")
+        
     await process_night_phase()
 
 async def process_night_phase():
