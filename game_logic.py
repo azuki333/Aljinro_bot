@@ -74,6 +74,20 @@ async def call_llm(prompt_content, debug=False):
     try: return await asyncio.to_thread(_sync_call_llm, prompt_content, debug)
     except Exception as e: print(f"[LLM Error]: {e}"); return None
 
+async def generate_ai_discussion(ai_p):
+    """
+    AIキャラクターの発言内容をLLM（Gemini/OpenAI）を使って生成する関数
+    """
+    prompt = f"""
+あなたはワンナイト人狼のAIプレイヤーです。
+キャラクター設定: {ai_p['ai_char']['name']} - {ai_p['ai_char']['desc']}
+あなたの本当の役職: {ai_p['role']}
+これまでの状況: {json.dumps(game['history'][-5:], ensure_ascii=False)}
+会話のトーンを守り、短く自然な日本語で1つ発言してください（2文以内、役職を勝手に明かすかは自由）。名前は不要です。
+"""
+    res = await call_llm(prompt)
+    return res
+
 async def start_5min_timer():
     try:
         await asyncio.sleep(300)
@@ -176,6 +190,7 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
+
 async def setup_game(channel, mode, human_users):
     reset_game_state()
     game["is_running"] = True
@@ -257,14 +272,7 @@ async def ai_chatter_loop(channel):
             await asyncio.sleep(random.randint(25, 40))
             if not game["is_running"] or game["phase"] != "discussion": break
             ai_p = random.choice([p for p in game["players"].values() if p["is_ai"]])
-            prompt = f"""
-あなたはワンナイト人狼のAIプレイヤーです。
-キャラクター設定: {ai_p['ai_char']['name']} - {ai_p['ai_char']['desc']}
-あなたの本当の役職: {ai_p['role']}
-これまでの状況: {json.dumps(game['history'][-5:], ensure_ascii=False)}
-会話のトーンを守り、短く自然な日本語で1つ発言してください（2文以内、役職を勝手に明かすかは自由）。名前は不要です。
-"""
-            res = await call_llm(prompt)
+            res = await generate_ai_discussion(ai_p)
             if res:
                 await send_split_message(channel, f"💬 **{ai_p['name']}**: {res}")
                 game["history"].append(f"{ai_p['name']}: {res}")
@@ -295,7 +303,6 @@ class VoteButton(discord.ui.Button):
         game["votes"][voter] = self.target_name
         await i.response.send_message(f"✅ **{self.target_name}** に投票しました。", ephemeral=True)
         
-        # 全員投票完了したかチェック（人間＋AI簡易自動投票）
         ai_voters = [p["name"] for p in game["players"].values() if p["is_ai"] and p["name"] not in game["votes"]]
         for av in ai_voters:
             targets = [n for n in game["players"].keys() if n != av]
@@ -310,7 +317,6 @@ async def finalize_game(channel):
     await channel.send("⚖️ **全員の投票が完了しました！結果を集計します...**")
     await asyncio.sleep(2)
 
-    # 投票集計
     counts = {}
     for target in game["votes"].values():
         counts[target] = counts.get(target, 0) + 1
@@ -322,8 +328,6 @@ async def finalize_game(channel):
     for v, t in game["votes"].items():
         result_desc += f"- {v} ➔ 投票先: **{t}**\n"
 
-    # 勝敗判定ロジック
-    # 簡易判定：人狼が処刑されたか？
     werewolves = [p["name"] for p in game["players"].values() if p["role"] == "人狼"]
     winner = "市民チームの勝利！" if any(e in werewolves for e in executed) else "人狼チームの勝利！"
 
@@ -331,8 +335,6 @@ async def finalize_game(channel):
     for p in game["players"].values():
         result_desc += f"- **{p['name']}**: {ROLE_EMOJIS.get(p['role'],'')} {p['role']} (初期役職: {p['original_role']})\n"
 
-    embed = discord.Embed(title="🎉 游戏終了 - ワンナイト人狼", description=result_desc, color=discord.Color.green())
+    embed = discord.Embed(title="🎉 ゲーム終了 - ワンナイト人狼", description=result_desc, color=discord.Color.green())
     await channel.send(embed=embed)
     reset_game_state()
-
-# Bot起動用コード等 (環境に合わせて設定)        
