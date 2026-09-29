@@ -62,8 +62,7 @@ async def on_message(message):
         if isinstance(message.channel, discord.DMChannel):
             p_name = None
             for n, p in game["players"].items():
-                u_obj = p.get("user_obj")
-                if u_obj and u_obj.id == message.author.id:
+                if p.get("user_obj") and p["user_obj"].id == message.author.id:
                     p_name = n
                     break
 
@@ -71,22 +70,15 @@ async def on_message(message):
                 await message.reply("現在参加しているゲームはありません。")
                 return
 
-            # 💡 修正：nightだけでなく discussion フェーズの序盤でもコマンドを受け付けるようにする
-            if game["phase"] not in ["night", "discussion"]:
-                await message.reply("⚠️ 現在は夜の行動フェーズではありません。")
-                return
-
-            if content.startswith('!fortune'):
+            if content.startswith('!fortune') and game["phase"] == "night":
                 t = content[8:].strip()
                 if t == "墓場":
                     await message.reply(f"🔮 墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』")
                 elif t in game["players"] and t != p_name:
                     await message.reply(f"🔮 {t} の役職は『{game['players'][t]['role']}』です。")
-                else:
-                    await message.reply("⚠️ 正しいプレイヤー名または「墓場」を指定してください。")
                 return
 
-            if content.startswith('!steal'):
+            if content.startswith('!steal') and game["phase"] == "night":
                 t = content[6:].strip()
                 if t in game["players"] and t != p_name:
                     my_old = game["players"][p_name]["role"]
@@ -94,25 +86,19 @@ async def on_message(message):
                     game["players"][p_name]["role"] = target_role
                     game["players"][t]["role"] = my_old
                     await message.reply(f"🎭 {t} から役職を盗みました！ 新役職: 『{game['players'][p_name]['role']}』")
-                else:
-                    await message.reply("⚠️ 正しいプレイヤー名を指定してください。")
                 return
 
-            if content.startswith('!hunt'):
+            if content.startswith('!hunt') and game["phase"] == "night":
                 t = content[6:].strip()
                 if t in game["players"] and t != p_name:
                     game["hunter_targets"][p_name] = t
                     await message.reply(f"🎯 狩人能力: {t} を指定しました。")
-                else:
-                    await message.reply("⚠️ 正しいプレイヤー名を指定してください。")
                 return
 
-            if content.startswith('!witch'):
+            if content.startswith('!witch') and game["phase"] == "night":
                 t = content[7:].strip()
                 if t in game["players"]:
                     await message.reply(f"🧙 魔女っ子能力: {t} の役職は『{game['players'][t]['role']}』です。")
-                else:
-                    await message.reply("⚠️ 正しいプレイヤー名を指定してください。")
                 return
 
             if content.startswith('!vote') and game["phase"] == "voting":
@@ -174,7 +160,7 @@ async def on_message(message):
                 await message.reply("👥 **マルチモード参加者募集中！**\n参加したい人は `!join` と送信してください。\nホストは準備ができたら `!start` で役職選択へ進んでください。")
                 return
 
-            # 💡 議論中の発言処理
+            # 💡 議論中の発言処理（ここで handle_jinro_command を呼び出すように修正）
             if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
                 actual_text = content[6:].strip() or "（進行）"
                 await handle_jinro_command(message, actual_text, message.author.display_name)
