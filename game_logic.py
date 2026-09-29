@@ -273,7 +273,7 @@ async def setup_game(channel, mode="solo", human_users=None):
     if mode == "watch":
         player_names = [c["name"] for c in AI_CHARACTERS]
     elif mode == "solo":
-        human_user = human_users[0] if len(human_users) > 0 else None
+        human_user = human_users[0] if len(human_users) > 0 else (channel.guild.get_member(channel.recipient.id) if hasattr(channel, 'recipient') and channel.recipient else None)
         human_name = human_user.display_name if human_user else "あなた"
         player_names = [human_name] + [c["name"] for c in AI_CHARACTERS]
     else:
@@ -294,7 +294,13 @@ async def setup_game(channel, mode="solo", human_users=None):
             ai_info = available_ai_chars.pop(0)
         elif mode == "solo":
             is_ai = (i > 0)
-            user_obj = human_users[0] if (not is_ai and len(human_users) > 0) else None
+            if not is_ai:
+                user_obj = human_users[0] if len(human_users) > 0 else None
+                if not user_obj and hasattr(channel, 'guild') and channel.guild:
+                    # もしコマンド実行者が取れない場合のフォールバック
+                    pass
+            else:
+                user_obj = None
             ai_info = available_ai_chars.pop(0) if is_ai else None
         else:
             is_ai = (i >= len(human_users))
@@ -335,7 +341,7 @@ async def setup_game(channel, mode="solo", human_users=None):
                     )
                 except Exception as e:
                     print(f"[DM送信エラー] {e}")
-                    await channel.send(f"⚠️ {p['user'].mention} へのDM送信に失敗しました。")
+                    await channel.send(f"⚠️ {p['user'].mention} へのDM送信に失敗しました（DMの設定を確認してください）。")
 
     await asyncio.sleep(3)
     await process_night_phase(channel)
@@ -365,7 +371,7 @@ async def ai_chatter_loop(channel):
 
 async def start_voting_phase():
     if game["phase"] == "voting": return
-    game["phase"] = "voting"
+    game["phase"] == "voting"
     if game["discussion_task"]: game["discussion_task"].cancel()
     
     embed = discord.Embed(title="🗳️ 投票タイム", description="誰を生け贄（人狼）として処刑するか投票してください！", color=discord.Color.gold())
