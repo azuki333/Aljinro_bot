@@ -1,10 +1,4 @@
-import os
-import random
-import json
-import asyncio
-import urllib.request
-import urllib.error
-import discord
+import discord, urllib.request, urllib.error, json, asyncio, os, random
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
@@ -89,6 +83,7 @@ async def start_5min_timer():
     except asyncio.CancelledError: pass
 
 def find_mentioned_ai(text):
+    """テキスト内に参加しているAIの名前が含まれているか確認し、最初に見つかったAIのデータを返す"""
     for name, p in game["players"].items():
         if p["is_ai"] and name in text:
             return name, p
@@ -217,6 +212,7 @@ async def setup_game(channel, mode, human_users=None):
             "role": role, "original_role": role, "desc": p.get("desc", "")
         }
 
+    # 参加プレイヤー一覧の生成
     member_list_text = "👥 **【参加プレイヤー一覧】**\n" + "\n".join([f"・{n} ({'AI' if p['is_ai'] else '人間'})" for n, p in game["players"].items()])
 
     if mode == "watch":
@@ -268,6 +264,14 @@ async def process_night_phase():
             else:
                 p["ai_knows"] = "平穏な夜でした。"
 
+    game["phase"] = "discussion"
+    if game["mode"] != "watch":
+        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` ※AIの名前を入れるとそのAIが答えます)**")
+        if game["mode"] == "multi":
+            game["discussion_task"] = asyncio.create_task(start_5min_timer())
+        else:
+            await generate_ai_discussion("（議論開始）")
+
 async def generate_ai_discussion(user_input="", is_watch=False):
     if game["phase"] != "discussion": return
     game["turn_count"] += 1
@@ -289,6 +293,7 @@ async def generate_ai_discussion(user_input="", is_watch=False):
         await start_voting_phase()
 
 async def handle_jinro_command(message, actual_text, author_name):
+    """!jinroコマンドが実行された際の処理。AIの名前が含まれていればそのAIが個別返答する"""
     if game["mode"] == "solo" or game["mode"] == "watch":
         await generate_ai_discussion(user_input=f"{author_name}: {actual_text}")
     elif game["mode"] == "multi":
