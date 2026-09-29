@@ -176,6 +176,7 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
+
 async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
@@ -341,4 +342,4 @@ async def Tally_and_finish():
     for n, p in game["players"].items():
         res += f"・{n}: 『{p['role']}』\n"
     res += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
-    await send_split_message(game["channel"], res)        
+    await send_split_message(game["channel"], res)
