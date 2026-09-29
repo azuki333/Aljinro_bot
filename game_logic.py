@@ -83,7 +83,6 @@ async def start_5min_timer():
     except asyncio.CancelledError: pass
 
 def find_mentioned_ai(text):
-    """テキスト内に参加しているAIの名前が含まれているか確認し、最初に見つかったAIのデータを返す"""
     for name, p in game["players"].items():
         if p["is_ai"] and name in text:
             return name, p
@@ -212,7 +211,6 @@ async def setup_game(channel, mode, human_users=None):
             "role": role, "original_role": role, "desc": p.get("desc", "")
         }
 
-    # 参加プレイヤー一覧の生成
     member_list_text = "👥 **【参加プレイヤー一覧】**\n" + "\n".join([f"・{n} ({'AI' if p['is_ai'] else '人間'})" for n, p in game["players"].items()])
 
     if mode == "watch":
@@ -266,7 +264,7 @@ async def process_night_phase():
 
     game["phase"] = "discussion"
     if game["mode"] != "watch":
-        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` ※AIの名前を入れるとそのAIが答えます)**")
+        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` ※AIの名前を入れるとそのAIが答えます / 平和を願う場合は `!vote 平和` をDMで)**")
         if game["mode"] == "multi":
             game["discussion_task"] = asyncio.create_task(start_5min_timer())
         else:
@@ -276,7 +274,16 @@ async def generate_ai_discussion(user_input="", is_watch=False):
     if game["phase"] != "discussion": return
     game["turn_count"] += 1
     ai_info = [f"- {n}: 設定({p['desc']}), 役職({p['role']}), 夜行動({p.get('ai_knows','')})" for n, p in game["players"].items() if p["is_ai"]]
-    prompt = f"ワンナイト人狼AI議論（ターン{game['turn_count']}/5）。嘘やブラフも交えて議論してください。\n【AI一覧】\n" + "\n".join(ai_info) + f"\n【ログ】\n" + "\n".join(game["history"][-10:]) + f"\n【発言】\n{user_input or '（なし）'}"
+    
+    prompt = (
+        f"ワンナイト人狼AI議論（ターン{game['turn_count']}/5）。\n"
+        f"【戦略指示】\n"
+        f"- ゲーム内のロールプレイおよび友好的なゲームの駆け引きとして、人狼陣営（人狼・狂人）や てるてる は、形勢を有利にするために積極的に嘘の役職を騙ったり、ブラフを仕掛ったりしてください。\n"
+        f"- 同様にゲーム内の駆け引きとして、村人陣営（市民・占い師・狩人・魔女っ子など）は、村の勝利のために自分の本当の役職や夜の行動結果を正確に主張してください。\n\n"
+        f"【AI一覧】\n" + "\n".join(ai_info) + f"\n"
+        f"【ログ】\n" + "\n".join(game["history"][-10:]) + f"\n"
+        f"【発言】\n{user_input or '（なし）'}"
+    )
     
     try:
         async with game["channel"].typing():
@@ -293,7 +300,6 @@ async def generate_ai_discussion(user_input="", is_watch=False):
         await start_voting_phase()
 
 async def handle_jinro_command(message, actual_text, author_name):
-    """!jinroコマンドが実行された際の処理。AIの名前が含まれていればそのAIが個別返答する"""
     if game["mode"] == "solo" or game["mode"] == "watch":
         await generate_ai_discussion(user_input=f"{author_name}: {actual_text}")
     elif game["mode"] == "multi":
@@ -301,7 +307,14 @@ async def handle_jinro_command(message, actual_text, author_name):
         
         if ai_name and target_ai:
             ai_info = f"- {ai_name}: 設定({target_ai['desc']}), 役職({target_ai['role']}), 夜行動({target_ai.get('ai_knows','')})"
-            prompt = f"ワンナイト人狼の議論中。あなたは『{ai_name}』です。性格・設定: {target_ai['desc']}\nプレイヤー({author_name})からの発言: 「{actual_text}」\nこの発言に対して、あなたのキャラクターになりきって短く（1〜3文程度で）返答してください。"
+            prompt = (
+                f"ワンナイト人狼の議論中。あなたは『{ai_name}』です。\n"
+                f"性格・設定: {target_ai['desc']}\n"
+                f"あなたの本来の役職: {target_ai['role']}\n"
+                f"【方針】ゲーム内のロールプレイや友好的な駆け引きとして、人狼陣営やてるてるなら騙りやブラフを、村人陣営なら自分の本当の役職や結果を正確に伝えてください。\n\n"
+                f"プレイヤー({author_name})からの発言: 「{actual_text}」\n"
+                f"この発言に対して、あなたのキャラクターになりきって短く（1〜3文程度で）返答してください。"
+            )
             
             try:
                 async with message.channel.typing():
@@ -318,14 +331,16 @@ async def handle_jinro_command(message, actual_text, author_name):
 
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **投票タイム**（DMで `!vote プレイヤー名` と送信してください）")
+    await game["channel"].send("🗳️ **投票タイム**（DMで `!vote プレイヤー名` または `!vote 平和` と送信してください）")
     
-    # 💡 修正: 人間がいない場合のみAIが自動で投票を完結させる
     human_players = [n for n, p in game["players"].items() if not p["is_ai"]]
     if len(human_players) == 0:
         for n, p in game["players"].items():
             if p["is_ai"]:
-                game["votes"][n] = random.choice([k for k in game["players"] if k != n])
+                if random.random() < 0.2:
+                    game["votes"][n] = "平和"
+                else:
+                    game["votes"][n] = random.choice([k for k in game["players"] if k != n])
         await asyncio.sleep(2)
         await Tally_and_finish()
 
@@ -335,46 +350,64 @@ async def Tally_and_finish():
     if game["discussion_task"]: game["discussion_task"].cancel()
 
     counts = {}
+    peace_count = 0
     for v, t in game["votes"].items():
-        counts[t] = counts.get(t, 0) + 1
+        if t == "平和":
+            peace_count += 1
+        else:
+            counts[t] = counts.get(t, 0) + 1
 
     res = "⚖️ **集計結果**\n"
     for v, t in game["votes"].items():
-        res += f"・{v} ➡️ {t}\n"
+        res += f"・{v} ➡️️ {t}\n"
 
     exec_p, drag_p = None, None
-    if not game["votes"] or len(counts) == 0:
-        res += "\n🩸 誰も投票しなかったため、平和村となりました。\n"
-    else:
-        max_v = max(counts.values()) if counts else 0
-        executed_candidates = [n for n, c in counts.items() if c == max_v]
+    total_votes = len(game["votes"])
 
-        if len(executed_candidates) == 1:
-            exec_p = executed_candidates[0]
-            res += f"\n🩸 最多得票: **{exec_p}** が処刑されました！\n"
+    if peace_count == total_votes and total_votes > 0:
+        res += "\n🕊️ **全員が平和を選択しました（平和村）！**\n"
+        surviving_werewolf_exists = any(p["role"] == "人狼" for p in game["players"].values())
+        
+        res += "\n🎉 **勝敗発表**\n"
+        if surviving_werewolf_exists:
+            res += "🐺 **人狼陣営の勝利！**（生存者に人狼が潜んでいました）\n"
         else:
-            exec_p = random.choice(executed_candidates)
-            res += f"\n🩸 最高得票（{max_v}票）で並んだ [{', '.join(executed_candidates)}] の中から、抽選の結果 **{exec_p}** が処刑されました！\n"
+            res += "🏆 **市民陣営の勝利！**（人狼は全員墓地にいました）\n"
 
-        if exec_p and game["players"][exec_p]["role"] == "狩人" and exec_p in game["hunter_targets"]:
-            drag_p = game["hunter_targets"][exec_p]
-            res += f"🎯 **狩人の道連れ発動！** ➡️ **{drag_p}** を巻き添えにしました！\n"
-
-    res += "\n🎉 **勝敗発表**\n"
-    if not exec_p:
-        res += "🐺 **人狼陣営の勝利！**（処刑者なし・平和村）\n"
-    elif (exec_p and game["players"][exec_p]["role"] == "てるてる") or (drag_p and game["players"][drag_p]["role"] == "てるてる"):
-        res += "☀️ **てるてる坊主の単独勝利！**\n"
     else:
-        w_win, w_lose = False, False
-        if exec_p and game["players"][exec_p]["role"] == "狩人" and drag_p:
-            if game["players"][drag_p]["role"] == "人狼": w_win = True
-            else: w_lose = True
+        if len(counts) == 0:
+            exec_p = None
+            res += "\n🩸 有効な投票がなく、誰も処刑されませんでした。\n"
+        else:
+            max_v = max(counts.values()) if counts else 0
+            executed_candidates = [n for n, c in counts.items() if c == max_v]
 
-        if w_win: res += "🏆 **市民陣営の勝利！**（狩人が人狼を道連れ）\n"
-        elif w_lose: res += "🐺 **人狼陣営の勝利！**（狩人が市民を道連れ）\n"
-        elif exec_p and game["players"][exec_p]["role"] == "人狼": res += "🏆 **市民陣営の勝利！**\n"
-        else: res += "🐺 **人狼陣営の勝利！**\n"
+            if len(executed_candidates) == 1:
+                exec_p = executed_candidates[0]
+                res += f"\n🩸 最多得票: **{exec_p}** が処刑されました！\n"
+            else:
+                exec_p = random.choice(executed_candidates)
+                res += f"\n🩸 最高得票（{max_v}票）で並んだ [{', '.join(executed_candidates)}] の中から、抽選の結果 **{exec_p}** が処刑されました！\n"
+
+            if exec_p and game["players"][exec_p]["role"] == "狩人" and exec_p in game["hunter_targets"]:
+                drag_p = game["hunter_targets"][exec_p]
+                res += f"🎯 **狩人の道連れ発動！** ➡️ **{drag_p}** を巻き添えにしました！\n"
+
+        res += "\n🎉 **勝敗発表**\n"
+        if not exec_p:
+            res += "🐺 **人狼陣営の勝利！**（処刑者なし）\n"
+        elif (exec_p and game["players"][exec_p]["role"] == "てるてる") or (drag_p and game["players"][drag_p]["role"] == "てるてる"):
+            res += "☀️ **てるてる坊主の単独勝利！**\n"
+        else:
+            w_win, w_lose = False, False
+            if exec_p and game["players"][exec_p]["role"] == "狩人" and drag_p:
+                if game["players"][drag_p]["role"] == "人狼": w_win = True
+                else: w_lose = True
+
+            if w_win: res += "🏆 **市民陣営の勝利！**（狩人が市民を道連れ）\n"
+            elif w_lose: res += "🐺 **人狼陣営の勝利！**（狩人が人狼を道連れ）\n"
+            elif exec_p and game["players"][exec_p]["role"] == "人狼": res += "🏆 **市民陣営の勝利！**\
+            else: res += "🐺 **人狼陣営の勝利！**\n"
 
     res += "\n📜 **最終正解**\n"
     for n, p in game["players"].items():
