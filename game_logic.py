@@ -21,7 +21,8 @@ game = {
     "is_running": False, "mode": None, "phase": "idle", "channel": None,
     "players": {}, "center_cards": [], "votes": {}, "hunter_targets": {},
     "witch_targets": {}, "turn_count": 0, "discussion_task": None, "history": [],
-    "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0}
+    "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0},
+    "watch_turn_index": 0
 }
 
 def reset_game_state():
@@ -32,7 +33,8 @@ def reset_game_state():
         "is_running": False, "mode": None, "phase": "idle", "channel": None,
         "players": {}, "center_cards": [], "votes": {}, "hunter_targets": {},
         "witch_targets": {}, "turn_count": 0, "discussion_task": None, "history": [],
-        "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0}
+        "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0},
+        "watch_turn_index": 0
     })
 
 async def send_split_message(channel, content):
@@ -75,10 +77,7 @@ async def call_llm(prompt_content, debug=False):
     except Exception as e: print(f"[LLM Error]: {e}"); return None
 
 async def generate_ai_discussion(is_watch=False, user_input=None):
-    if is_watch:
-        ai_p = random.choice([p for p in game["players"].values() if p["is_ai"]])
-    else:
-        ai_p = random.choice([p for p in game["players"].values() if p["is_ai"]])
+    ai_p = random.choice([p for p in game["players"].values() if p["is_ai"]])
     
     prompt = f"""
 あなたはワンナイト人狼のAIプレイヤーです。
@@ -93,6 +92,45 @@ async def generate_ai_discussion(is_watch=False, user_input=None):
         await send_split_message(game["channel"], f"💬 **{ai_p['name']}**: {res}")
         game["history"].append(f"{ai_p['name']}: {res}")
     return res
+
+async def step_watch_discussion(channel):
+    if not game["is_running"] or game["mode"] != "watch":
+        await channel.send("⚠️ 現在、観戦モードが進行中ではありません。")
+        return
+
+    if game["phase"] != "discussion":
+        await channel.send("⚠️ 現在は議論フェイズではありません。")
+        return
+
+    ai_players = [p for p in game["players"].values() if p["is_ai"]]
+    max_turns = 5
+
+    if game["watch_turn_index"] < max_turns:
+        current_turn = game["watch_turn_index"] + 1
+        ai_p = ai_players[game["watch_turn_index"] % len(ai_players)]
+        
+        prompt = f"""
+あなたはワンナイト人狼のAIプレイヤーです（観戦モード・第{current_turn}ターン目）。
+キャラクター設定: {ai_p['ai_char']['name']} - {ai_p['ai_char']['desc']}
+あなたの本当の役職: {ai_p['role']}
+これまでの状況: {json.dumps(game['history'][-5:], ensure_ascii=False)}
+会話のトーンを守り、短く自然な日本語で1つ発言してください（2文以内）。名前は不要です。
+"""
+        res = await call_llm(prompt)
+        if res:
+            await send_split_message(channel, f"💬 **[第{current_turn}/5ターン] {ai_p['name']}**: {res}")
+            game["history"].append(f"{ai_p['name']}: {res}")
+
+        game["watch_turn_index"] += 1
+
+        if game["watch_turn_index"] >= max_turns:
+            await channel.send("✨ **5ターンの議論が終了しました！** `!jinro next` をもう一度打つと投票・結果発表に進みます。")
+    else:
+        await channel.send("🗳️ **投票フェイズに移行します...**")
+        for p in ai_players:
+            targets = [n for n in game["players"].keys() if n != p["name"]]
+            game["votes"][p["name"]] = random.choice(targets)
+        await Tally_and_finish()
 
 async def start_5min_timer():
     try:
@@ -112,18 +150,20 @@ class RoleCountSelectView(discord.ui.View):
     def create_embed(self):
         embed = discord.Embed(title="🎴 役職カスタム枚数設定", description="5人プレイ時は合計7枚にしてください。", color=discord.Color.blue())
         total = sum(self.roles.values())
-        for r, c in self.roles.items(): embed.add_field(name=f"{ROLE_EMOJIS.get(r,'')} {r}", value=f"**{c}**枚", inline=True)
+        for r, c in self.roles.items(): 
+            embed.add_field(name=f"{ROLE_EMOJIS.get(r,'')} {r}", value=f"**{c}**枚", inline=True)
         embed.set_footer(text=f"合計枚数: {total}枚 (推奨: 7枚)")
         return embed
 
     @discord.ui.button(label="🚀 ゲーム開始！", style=discord.ButtonStyle.blurple, row=4)
-    async def confirm(self, i: discord.Interaction, b: discord.ui.Button):
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if sum(self.roles.values()) != 7:
-            await i.response.send_message("⚠️ 合計7枚にしてください。", ephemeral=True); return
-        await i.response.send_message("✨ セットアップ中...", ephemeral=True)
+            await interaction.response.send_message("⚠️ 合計7枚にしてください。", ephemeral=True)
+            return
+        await interaction.response.send_message("✨ セットアップ中...", ephemeral=True)
         game["selected_roles"] = dict(self.roles)
         self.stop()
-        asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
+        asyncio.create_task(setup_game(interaction.channel, self.mode, self.human_users))
 
 async def setup_game(channel, mode="solo", human_users=None):
     reset_game_state()
@@ -166,7 +206,7 @@ async def setup_game(channel, mode="solo", human_users=None):
     game["turn_count"] = 1
 
     if mode == "watch":
-        await channel.send("👀 **観戦モード開始**：AIたちによるワンナイト人狼を開始します。夜のフェイズへ移行中...")
+        await channel.send("👀 **観戦モード開始**：AIたちによるワンナイト人狼を開始します。\n👉 `!jinro next` を打つと、1ターンずつ議論が進みます（全5ターン）。")
     else:
         await channel.send("🌙 **夜が訪れました…プレイヤー全員の役職が配られました。**\n各自、自身の役職を確認してください。")
     
@@ -182,7 +222,7 @@ async def process_night_phase(channel):
 async def start_discussion_phase(channel):
     game["phase"] = "discussion"
     if game["mode"] == "watch":
-        await channel.send("☀️ **朝になりました（観戦モード）！** `!jinro next` でAIに1発言ずつ促せます。")
+        await channel.send("☀️ **朝になりました（観戦モード）！** `!jinro next` を打って議論を進めてください。")
     else:
         await channel.send("☀️ **朝になりました！これより議論を開始します。**（制限時間：5分、または投票へ）")
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
@@ -193,7 +233,6 @@ async def ai_chatter_loop(channel):
         while game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
             await asyncio.sleep(random.randint(25, 40))
             if not game["is_running"] or game["phase"] != "discussion": break
-            ai_p = random.choice([p for p in game["players"].values() if p["is_ai"]])
             await generate_ai_discussion(is_watch=False)
     except asyncio.CancelledError: pass
 
