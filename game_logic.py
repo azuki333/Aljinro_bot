@@ -319,10 +319,13 @@ async def handle_jinro_command(message, actual_text, author_name):
 async def start_voting_phase():
     game["phase"] = "voting"
     await game["channel"].send("🗳️ **投票タイム**（DMで `!vote プレイヤー名` と送信してください）")
-    for n, p in game["players"].items():
-        if p["is_ai"]:
-            game["votes"][n] = random.choice([k for k in game["players"] if k != n])
-    if len([n for n, p in game["players"].items() if not p["is_ai"]]) == 0:
+    
+    # 💡 修正: 人間がいない場合のみAIが自動で投票を完結させる
+    human_players = [n for n, p in game["players"].items() if not p["is_ai"]]
+    if len(human_players) == 0:
+        for n, p in game["players"].items():
+            if p["is_ai"]:
+                game["votes"][n] = random.choice([k for k in game["players"] if k != n])
         await asyncio.sleep(2)
         await Tally_and_finish()
 
