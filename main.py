@@ -12,7 +12,7 @@ from game_logic import (
     AI_CHARACTERS, ROLE_EMOJIS, game, send_split_message, 
     call_llm, start_5min_timer, RoleCountSelectView, 
     setup_game, process_night_phase, generate_ai_discussion, 
-    start_voting_phase, Tally_and_finish, reset_game_state
+    handle_jinro_command, start_voting_phase, Tally_and_finish, reset_game_state
 )
 
 # --- Discord Client 設定 ---
@@ -43,7 +43,7 @@ async def on_message(message):
 
         if content == '!test':
             async with message.channel.typing():
-                res = await call_llm("「テスト成功」と返答してください。", debug=True)
+                res = await call_llm("テスト成功」と返答してください。", debug=True)
                 await send_split_message(message.channel, res)
             return
 
@@ -85,7 +85,7 @@ async def on_message(message):
                     target_role = game["players"][t]["role"]
                     game["players"][p_name]["role"] = target_role
                     game["players"][t]["role"] = my_old
-                    await message.reply(f"🎭 {t} から役職を盗みました！ 新役職: 『{target_role}』")
+                    await message.reply(f"🎭 {t} から役職を盗みました！ 新役職: 『{game['players'][p_name]['role']}』")
                 return
 
             if content.startswith('!hunt') and game["phase"] == "night":
@@ -160,9 +160,10 @@ async def on_message(message):
                 await message.reply("👥 **マルチモード参加者募集中！**\n参加したい人は `!join` と送信してください。\nホストは準備ができたら `!start` で役職選択へ進んでください。")
                 return
 
+            # 💡 議論中の発言処理（ここで handle_jinro_command を呼び出すように修正）
             if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
                 actual_text = content[6:].strip() or "（進行）"
-                await generate_ai_discussion(user_input=f"{message.author.display_name}: {actual_text}")
+                await handle_jinro_command(message, actual_text, message.author.display_name)
                 return
 
         # マルチモードの参加受付 (`!join`)
