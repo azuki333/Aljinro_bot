@@ -182,7 +182,6 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
-
 async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
@@ -278,7 +277,7 @@ async def generate_ai_discussion(user_input="", is_watch=False):
     prompt = (
         f"ワンナイト人狼AI議論（ターン{game['turn_count']}/5）。\n"
         f"【戦略指示】\n"
-        f"- ゲーム内のロールプレイおよび友好的なゲームの駆け引きとして、人狼陣営（人狼・狂人）や てるてる は、形勢を有利にするために積極的に嘘の役職を騙ったり、ブラフを仕掛ったりしてください。\n"
+        f"- ゲーム内のロールプレイおよび友好的なゲームの駆け引きとして、人狼陣営（人狼・狂人）や てるてる は、形勢を有利にするために積極的に嘘の役職を騙ったり、ブラフを仕掛けたりしてください。\n"
         f"- 同様にゲーム内の駆け引きとして、村人陣営（市民・占い師・狩人・魔女っ子など）は、村の勝利のために自分の本当の役職や夜の行動結果を正確に主張してください。\n\n"
         f"【AI一覧】\n" + "\n".join(ai_info) + f"\n"
         f"【ログ】\n" + "\n".join(game["history"][-10:]) + f"\n"
@@ -359,7 +358,7 @@ async def Tally_and_finish():
 
     res = "⚖️ **集計結果**\n"
     for v, t in game["votes"].items():
-        res += f"・{v} ➡️️ {t}\n"
+        res += f"・{v} ➡️ {t}\n"
 
     exec_p, drag_p = None, None
     total_votes = len(game["votes"])
@@ -404,9 +403,9 @@ async def Tally_and_finish():
                 if game["players"][drag_p]["role"] == "人狼": w_win = True
                 else: w_lose = True
 
-            if w_win: res += "🏆 **市民陣営の勝利！**（狩人が市民を道連れ）\n"
-            elif w_lose: res += "🐺 **人狼陣営の勝利！**（狩人が人狼を道連れ）\n"
-            elif exec_p and game["players"][exec_p]["role"] == "人狼": res += "🏆 **市民陣営の勝利！**\
+            if w_win: res += "🏆 **市民陣営の勝利！**（狩人が人狼を道連れ）\n"
+            elif w_lose: res += "🐺 **人狼陣営の勝利！**（狩人が市民を道連れ）\n"
+            elif exec_p and game["players"][exec_p]["role"] == "人狼": res += "🏆 **市民陣営の勝利！**\n"
             else: res += "🐺 **人狼陣営の勝利！**\n"
 
     res += "\n📜 **最終正解**\n"
@@ -414,3 +413,4 @@ async def Tally_and_finish():
         res += f"・{n}: 『{p['role']}』\n"
     res += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
     await send_split_message(game["channel"], res)
+        
