@@ -1,21 +1,9 @@
-import discord
-import urllib.request
-import urllib.error
-import json
-import asyncio
-import os
-import random
+import discord, urllib.request, urllib.error, json, asyncio, os, random
 
-# --- 環境変数の取得 ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+HTTP_HEADERS = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
 
-HTTP_HEADERS = {
-    "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0"
-}
-
-# --- AIキャラクター設定（5人） ---
 AI_CHARACTERS = [
     {"name": "レン", "desc": "20代男性。冷静沈着で論理的。矛盾や怪しい発言を見逃さず詰めるタイプ。"},
     {"name": "ユイ", "desc": "17歳女子高生。直感重視で天然だが直感が当たる。"},
@@ -25,125 +13,66 @@ AI_CHARACTERS = [
 ]
 
 ROLE_EMOJIS = {
-    "人狼": "🐺",
-    "市民": "👤",
-    "占い師": "🔮",
-    "怪盗": "🕵️",
-    "狩人": "🎯",
-    "てるてる": "☀️",
-    "魔女っ子": "🧙‍♀️",
-    "狂人": "🤫"
+    "人狼": "🐺", "市民": "👤", "占い師": "🔮", "怪盗": "🕵️", 
+    "狩人": "🎯", "てるてる": "☀️", "魔女っ子": "🧙‍♀️", "狂人": "🤫"
 }
 
-# --- ゲーム状態管理 ---
 game = {
-    "is_running": False,
-    "mode": None,
-    "phase": "idle",
-    "channel": None,
-    "players": {},
-    "center_cards": [],
-    "votes": {},
-    "hunter_targets": {},
-    "witch_targets": {},
-    "turn_count": 0,
-    "discussion_task": None,
-    "history": [],
-    "selected_roles": {
-        "人狼": 2,
-        "市民": 3,
-        "占い師": 1,
-        "怪盗": 1,
-        "狩人": 0,
-        "てるてる": 0,
-        "魔女っ子": 0,
-        "狂人": 0
-    }
+    "is_running": False, "mode": None, "phase": "idle", "channel": None,
+    "players": {}, "center_cards": [], "votes": {}, "hunter_targets": {},
+    "witch_targets": {}, "turn_count": 0, "discussion_task": None, "history": [],
+    "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0}
 }
 
 def reset_game_state():
     global game
-    if game["discussion_task"]:
-        game["discussion_task"].cancel()
+    if game["discussion_task"]: game["discussion_task"].cancel()
     game.clear()
     game.update({
-        "is_running": False,
-        "mode": None,
-        "phase": "idle",
-        "channel": None,
-        "players": {},
-        "center_cards": [],
-        "votes": {},
-        "hunter_targets": {},
-        "witch_targets": {},
-        "turn_count": 0,
-        "discussion_task": None,
-        "history": [],
-        "selected_roles": {
-            "人狼": 2,
-            "市民": 3,
-            "占い師": 1,
-            "怪盗": 1,
-            "狩人": 0,
-            "てるてる": 0,
-            "魔女っ子": 0,
-            "狂人": 0
-        }
+        "is_running": False, "mode": None, "phase": "idle", "channel": None,
+        "players": {}, "center_cards": [], "votes": {}, "hunter_targets": {},
+        "witch_targets": {}, "turn_count": 0, "discussion_task": None, "history": [],
+        "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0}
     })
 
 async def send_split_message(channel, content):
-    if not content or not channel:
-        return
+    if not content or not channel: return
     for i in range(0, len(content), 1900):
-        try:
-            await channel.send(content[i:i+1900])
-        except Exception as e:
-            print(f"[送信エラー]: {e}")
+        try: await channel.send(content[i:i+1900])
+        except Exception as e: print(f"[送信エラー]: {e}")
 
 def _sync_call_llm(prompt_content, debug=False):
     errors = []
     if GEMINI_API_KEY:
         try:
-            gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
             payload = {"contents": [{"parts": [{"text": prompt_content}]}]}
-            req = urllib.request.Request(gemini_url, data=json.dumps(payload).encode('utf-8'), headers=HTTP_HEADERS, method="POST")
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=HTTP_HEADERS, method="POST")
             with urllib.request.urlopen(req, timeout=15.0) as res:
                 data = json.loads(res.read().decode('utf-8'))
                 if "candidates" in data and len(data["candidates"]) > 0:
                     text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    if len(text) > 5:
-                        return (text if not debug else f"【Gemini成功】\n{text}")
-        except Exception as e:
-            errors.append(f"Gemini Error: {e}")
+                    if len(text) > 5: return (text if not debug else f"【Gemini成功】\n{text}")
+        except Exception as e: errors.append(f"Gemini Error: {e}")
 
     if OPENAI_API_KEY:
         try:
-            openai_url = "https://api.openai.com/v1/chat/completions"
-            payload = {
-                "model": "gpt-4o-mini",
-                "messages": [{"role": "user", "content": prompt_content}],
-                "temperature": 0.8
-            }
+            url = "https://api.openai.com/v1/chat/completions"
+            payload = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt_content}], "temperature": 0.8}
             headers = HTTP_HEADERS.copy()
             headers["Authorization"] = f"Bearer {OPENAI_API_KEY}"
-            req = urllib.request.Request(openai_url, data=json.dumps(payload).encode('utf-8'), headers=headers, method="POST")
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=15.0) as res:
                 data = json.loads(res.read().decode('utf-8'))
                 if "choices" in data and len(data["choices"]) > 0:
                     return (data["choices"][0]["message"]["content"] if not debug else f"【OpenAI成功】\n{data['choices'][0]['message']['content']}")
-        except Exception as e:
-            errors.append(f"OpenAI Error: {e}")
+        except Exception as e: errors.append(f"OpenAI Error: {e}")
 
-    if debug:
-        return "❌ API呼出失敗: " + ", ".join(errors)
-    return None
+    return "❌ API呼出失敗: " + ", ".join(errors) if debug else None
 
 async def call_llm(prompt_content, debug=False):
-    try:
-        return await asyncio.to_thread(_sync_call_llm, prompt_content, debug)
-    except Exception as e:
-        print(f"[LLM Error]: {e}")
-        return None
+    try: return await asyncio.to_thread(_sync_call_llm, prompt_content, debug)
+    except Exception as e: print(f"[LLM Error]: {e}"); return None
 
 async def start_5min_timer():
     try:
@@ -151,8 +80,7 @@ async def start_5min_timer():
         if game["is_running"] and game["phase"] == "discussion":
             await game["channel"].send("🚨 **【5分経過・議論終了！】** 投票タイムに移ります。")
             await start_voting_phase()
-    except asyncio.CancelledError:
-        pass
+    except asyncio.CancelledError: pass
 
 class RoleCountSelectView(discord.ui.View):
     def __init__(self, mode, human_users):
@@ -162,229 +90,164 @@ class RoleCountSelectView(discord.ui.View):
         self.roles = dict(game["selected_roles"])
 
     def create_embed(self):
-        embed = discord.Embed(
-            title="🎴 役職カスタム枚数設定パネル",
-            description="ボタンで役職の枚数を増減させてください。（5人プレイ時は合計7枚）",
-            color=discord.Color.blue()
-        )
-        total = 0
-        for role, count in self.roles.items():
-            emoji = ROLE_EMOJIS.get(role, "")
-            embed.add_field(name=f"{emoji} {role}", value=f"**{count}** 枚", inline=True)
-            total += count
-        embed.set_footer(text=f"現在の合計カード枚数: {total} 枚 (推奨: 7枚)")
+        embed = discord.Embed(title="🎴 役職カスタム枚数設定", description="5人プレイ時は合計7枚にしてください。", color=discord.Color.blue())
+        total = sum(self.roles.values())
+        for r, c in self.roles.items(): embed.add_field(name=f"{ROLE_EMOJIS.get(r,'')} {r}", value=f"**{c}**枚", inline=True)
+        embed.set_footer(text=f"合計枚数: {total}枚 (推奨: 7枚)")
         return embed
 
     @discord.ui.button(label="🐺 人狼+", style=discord.ButtonStyle.danger, row=0)
-    async def add_ww(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.roles["人狼"] += 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
-
+    async def a_ww(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer(); self.roles["人狼"] += 1; await i.edit_original_response(embed=self.create_embed(), view=self)
     @discord.ui.button(label="人狼-", style=discord.ButtonStyle.secondary, row=0)
-    async def sub_ww(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.roles["人狼"] > 0:
-            self.roles["人狼"] -= 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
+    async def s_ww(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer();
+        if self.roles["人狼"] > 0: self.roles["人狼"] -= 1
+        await i.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="👤 市民+", style=discord.ButtonStyle.primary, row=0)
-    async def add_cit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.roles["市民"] += 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
-
+    async def a_cit(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer(); self.roles["市民"] += 1; await i.edit_original_response(embed=self.create_embed(), view=self)
     @discord.ui.button(label="市民-", style=discord.ButtonStyle.secondary, row=0)
-    async def sub_cit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.roles["市民"] > 0:
-            self.roles["市民"] -= 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
+    async def s_cit(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer();
+        if self.roles["市民"] > 0: self.roles["市民"] -= 1
+        await i.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🔮 占い+", style=discord.ButtonStyle.success, row=1)
-    async def add_see(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.roles["占い師"] += 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
-
+    async def a_see(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer(); self.roles["占い師"] += 1; await i.edit_original_response(embed=self.create_embed(), view=self)
     @discord.ui.button(label="占い-", style=discord.ButtonStyle.secondary, row=1)
-    async def sub_see(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.roles["占い師"] > 0:
-            self.roles["占い師"] -= 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
+    async def s_see(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer();
+        if self.roles["占い師"] > 0: self.roles["占い師"] -= 1
+        await i.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🕵️ 怪盗+", style=discord.ButtonStyle.success, row=1)
-    async def add_thf(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.roles["怪盗"] += 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
-
+    async def a_thf(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer(); self.roles["怪盗"] += 1; await i.edit_original_response(embed=self.create_embed(), view=self)
     @discord.ui.button(label="怪盗-", style=discord.ButtonStyle.secondary, row=1)
-    async def sub_thf(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.roles["怪盗"] > 0:
-            self.roles["怪盗"] -= 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
+    async def s_thf(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer();
+        if self.roles["怪盗"] > 0: self.roles["怪盗"] -= 1
+        await i.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🎯 狩人+", style=discord.ButtonStyle.success, row=2)
-    async def add_hnt(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.roles["狩人"] += 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
-
+    async def a_hnt(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer(); self.roles["狩人"] += 1; await i.edit_original_response(embed=self.create_embed(), view=self)
     @discord.ui.button(label="狩人-", style=discord.ButtonStyle.secondary, row=2)
-    async def sub_hnt(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.roles["狩人"] > 0:
-            self.roles["狩人"] -= 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
+    async def s_hnt(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer();
+        if self.roles["狩人"] > 0: self.roles["狩人"] -= 1
+        await i.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="☀️ てる+", style=discord.ButtonStyle.success, row=2)
-    async def add_teru(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.roles["てるてる"] += 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
-
+    async def a_teru(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer(); self.roles["てるてる"] += 1; await i.edit_original_response(embed=self.create_embed(), view=self)
     @discord.ui.button(label="てる-", style=discord.ButtonStyle.secondary, row=2)
-    async def sub_teru(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.roles["てるてる"] > 0:
-            self.roles["てるてる"] -= 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
+    async def s_teru(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer();
+        if self.roles["てるてる"] > 0: self.roles["てるてる"] -= 1
+        await i.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🧙 魔女+", style=discord.ButtonStyle.success, row=3)
-    async def add_witch(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.roles["魔女っ子"] += 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
-
+    async def a_witch(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer(); self.roles["魔女っ子"] += 1; await i.edit_original_response(embed=self.create_embed(), view=self)
     @discord.ui.button(label="魔女-", style=discord.ButtonStyle.secondary, row=3)
-    async def sub_witch(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.roles["魔女っ子"] > 0:
-            self.roles["魔女っ子"] -= 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
+    async def s_witch(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer();
+        if self.roles["魔女っ子"] > 0: self.roles["魔女っ子"] -= 1
+        await i.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🤫 狂人+", style=discord.ButtonStyle.success, row=3)
-    async def add_mad(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.roles["狂人"] += 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
-
+    async def a_mad(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer(); self.roles["狂人"] += 1; await i.edit_original_response(embed=self.create_embed(), view=self)
     @discord.ui.button(label="狂人-", style=discord.ButtonStyle.secondary, row=3)
-    async def sub_mad(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.roles["狂人"] > 0:
-            self.roles["狂人"] -= 1
-        await interaction.edit_original_response(embed=self.create_embed(), view=self)
+    async def s_mad(self, i: discord.Interaction, b: discord.ui.Button):
+        await i.response.defer();
+        if self.roles["狂人"] > 0: self.roles["狂人"] -= 1
+        await i.edit_original_response(embed=self.create_embed(), view=self)
 
     @discord.ui.button(label="🚀 ゲーム開始！", style=discord.ButtonStyle.blurple, row=4)
-    async def confirm_start(self, interaction: discord.Interaction, button: discord.ui.Button):
-        total = sum(self.roles.values())
-        if total != 7:
-            await interaction.response.send_message(f"⚠️ 合計 **7枚** 必要です（現在 {total} 枚）。", ephemeral=True)
-            return
-
-        await interaction.response.send_message("✨ 構成確定！ゲームをセットアップしています…少々お待ちください。", ephemeral=True)
+    async def confirm(self, i: discord.Interaction, b: discord.ui.Button):
+        if sum(self.roles.values()) != 7:
+            await i.response.send_message("⚠️ 合計7枚にしてください。", ephemeral=True); return
+        await i.response.send_message("✨ セットアップ中...", ephemeral=True)
         game["selected_roles"] = dict(self.roles)
         self.stop()
-        asyncio.create_task(setup_game(interaction.channel, self.mode, self.human_users))
-
-async def setup_game(channel, mode, human_users=None):
+        asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
+        async def setup_game(channel, mode, human_users=None):
     global game
-    game["is_running"] = True
-    game["mode"] = mode
-    game["phase"] = "night"
-    game["channel"] = channel
-    game["players"] = {}
-    game["votes"] = {}
-    game["hunter_targets"] = {}
-    game["witch_targets"] = {}
-    game["turn_count"] = 0
-    game["history"] = []
-
+    game.update({
+        "is_running": True, "mode": mode, "phase": "night", "channel": channel,
+        "players": {}, "votes": {}, "hunter_targets": {}, "witch_targets": {},
+        "turn_count": 0, "history": []
+    })
     human_users = human_users or []
-    all_participants = []
-
+    
     if mode == "watch":
-        for ai in AI_CHARACTERS:
-            all_participants.append({"name": ai["name"], "is_ai": True, "user_obj": None, "desc": ai["desc"]})
+        parts = [{"name": ai["name"], "is_ai": True, "desc": ai["desc"]} for ai in AI_CHARACTERS]
     else:
-        for u in human_users:
-            all_participants.append({"name": u.display_name, "is_ai": False, "user_obj": u})
-        needed = 5 - len(all_participants)
-        if needed > 0:
-            for ai in random.sample(AI_CHARACTERS, needed):
-                all_participants.append({"name": ai["name"], "is_ai": True, "user_obj": None, "desc": ai["desc"]})
+        parts = [{"name": u.display_name, "is_ai": False, "user_obj": u} for u in human_users] + \
+                [{"name": ai["name"], "is_ai": True, "desc": ai["desc"]} for ai in random.sample(AI_CHARACTERS, 5 - len(human_users))]
 
     pool = []
-    for role, count in game["selected_roles"].items():
-        for _ in range(count):
-            pool.append(role)
-
+    for r, c in game["selected_roles"].items():
+        pool.extend([r] * c)
     random.shuffle(pool)
+    
     game["center_cards"] = [pool.pop(), pool.pop()]
-
-    for p in all_participants:
-        assigned = pool.pop()
+    for p in parts:
+        role = pool.pop()
         game["players"][p["name"]] = {
-            "is_ai": p["is_ai"],
-            "user_obj": p["user_obj"],
-            "role": assigned,
-            "original_role": assigned,
-            "desc": p.get("desc", "")
+            "is_ai": p["is_ai"], "user_obj": p.get("user_obj"),
+            "role": role, "original_role": role, "desc": p.get("desc", "")
         }
 
     if mode == "watch":
-        await channel.send("🍿 **観戦モード開始！** `!jinro next` でターン1を開始します。")
+        await channel.send("🍿 **観戦モード開始！** `!jinro next` で進みます。")
     else:
         await channel.send("🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。")
-
     await process_night_phase()
 
 async def process_night_phase():
-    werewolves = [name for name, p in game["players"].items() if p["role"] == "人狼"]
-
-    for name, p in game["players"].items():
+    wws = [n for n, p in game["players"].items() if p["role"] == "人狼"]
+    for n, p in game["players"].items():
         if not p["is_ai"] and p["user_obj"]:
             msg = f"🌙 **役職: 『{p['role']}』**\n"
             if p["role"] == "人狼":
-                others = [w for w in werewolves if w != name]
-                msg += f"仲間: **{', '.join(others)}**" if others else "（仲間なし）"
+                msg += f"仲間: {', '.join([w for w in wws if w != n]) or 'なし（または墓場にいます）'}"
             elif p["role"] == "占い師":
-                msg += "💬 `!fortune プレイヤー名` または `!fortune 墓場`"
+                msg += "💬 占うには `!fortune プレイヤー名` または `!fortune 墓場`"
             elif p["role"] == "怪盗":
-                msg += "💬 `!steal プレイヤー名`"
+                msg += "💬 盗むには `!steal プレイヤー名`"
             elif p["role"] == "狩人":
-                msg += "💬 `!hunt プレイヤー名`"
+                msg += "💬 道連れを指定するには `!hunt プレイヤー名`"
             elif p["role"] == "魔女っ子":
-                msg += "💬 `!witch プレイヤー名`"
-            elif p["role"] == "狂人":
-                msg += "💬 あなたは狂人です。人狼陣営を勝利に導いてください。"
-            elif p["role"] == "てるてる":
-                msg += "💬 あなたはてるてる坊主です。処刑されれば単独勝利です！"
+                msg += "💬 覗き見るには `!witch プレイヤー名`"
+            else:
+                msg += "今夜は静かに眠りましょう。"
             try:
                 await p["user_obj"].send(msg)
-            except Exception as e:
-                print(f"[DM失敗]: {e}")
+            except:
+                pass
 
-    for name, p in game["players"].items():
+    for n, p in game["players"].items():
         if p["is_ai"]:
             if p["role"] == "占い師":
-                t = random.choice([n for n in game["players"].keys() if n != name])
+                t = random.choice([k for k in game["players"] if k != n])
                 p["ai_knows"] = f"{t} は『{game['players'][t]['role']}』でした。"
             elif p["role"] == "怪盗":
-                t = random.choice([n for n in game["players"].keys() if n != name])
-                game["players"][name]["role"], game["players"][t]["role"] = game["players"][t]["role"], game["players"][name]["role"]
+                t = random.choice([k for k in game["players"] if k != n])
+                game["players"][n]["role"], game["players"][t]["role"] = game["players"][t]["role"], game["players"][n]["role"]
                 p["ai_knows"] = f"{t} と役職を交換しました。"
             elif p["role"] == "狩人":
-                t = random.choice([n for n in game["players"].keys() if n != name])
-                game["hunter_targets"][name] = t
+                t = random.choice([k for k in game["players"] if k != n])
+                game["hunter_targets"][n] = t
                 p["ai_knows"] = f"{t} を道連れ指定しました。"
             elif p["role"] == "魔女っ子":
-                t = random.choice([n for n in game["players"].keys() if n != name])
-                game["witch_targets"][name] = t
+                t = random.choice([k for k in game["players"] if k != n])
+                game["witch_targets"][n] = t
                 p["ai_knows"] = f"{t} の役職は『{game['players'][t]['role']}』でした。"
             else:
                 p["ai_knows"] = "平穏な夜でした。"
@@ -398,50 +261,18 @@ async def process_night_phase():
             await generate_ai_discussion("（議論開始）")
 
 async def generate_ai_discussion(user_input="", is_watch=False):
-    if game["phase"] != "discussion":
-        return
-
+    if game["phase"] != "discussion": return
     game["turn_count"] += 1
-    ai_info = []
-    for name, p in game["players"].items():
-        if p["is_ai"]:
-            ai_info.append(
-                f"- 名前: {name} (設定: {p['desc']})\n"
-                f"  【本当の秘密役職】: {p['role']} (元の役職: {p['original_role']})\n"
-                f"  【夜に得た情報/行動】: {p.get('ai_knows', '平穏な夜だった')}"
-            )
-
-    prompt = f"""ワンナイト人狼のAI議論（ターン {game['turn_count']} / 5）。
-あなたは、AIキャラクターの一人として他のメンバーと議論をします。
-
-【ゲームのルールと目的】
-- 市民陣営：人狼を見つけて処刑する。
-- 人狼陣営：市民陣営をだまして自分以外の誰かを処刑に追い込む。
-- てるてる坊主：自分が処刑されれば単独勝利。そのため、あえて怪しい動きをして処刑を誘導してよい。
-- **重要（役職騙り・ブラフ）**: 
-  - 人狼や狂人は、自分が人狼だとバレないように「私は占い師です」などと**嘘の役職を騙っても構いません**。
-  - 市民や他の役職も、状況をかく乱するためにあえて嘘をついたり、ブラフ（ハッタリ）を仕掛けて心理戦を楽しんでください。
-
-【参加者（AI）のステータス】
-{chr(10).join(ai_info)}
-
-【これまでの会話・発言ログ】
-{chr(10).join(game['history'][-10:])}
-
-【直近のユーザー（人間）の発言】
-{user_input if user_input else "（特に人間からの直接発言なし。議論を進める）"}
-
-上記を踏まえ、今回のターンでのAIたちの議論のやり取り（誰が何を主張し、誰を疑うか、どんな嘘や騙りを仕掛けるか）を、自然な会話のセリフ形式で出力してください。"""
-
+    ai_info = [f"- {n}: 設定({p['desc']}), 役職({p['role']}), 夜行動({p.get('ai_knows','')})" for n, p in game["players"].items() if p["is_ai"]]
+    prompt = f"ワンナイト人狼AI議論（ターン{game['turn_count']}/5）。嘘やブラフも交えて議論してください。\n【AI一覧】\n" + "\n".join(ai_info) + f"\n【ログ】\n" + "\n".join(game["history"][-10:]) + f"\n【発言】\n{user_input or '（なし）'}"
+    
     try:
         async with game["channel"].typing():
             reply = await call_llm(prompt)
             if reply:
-                if user_input:
-                    game["history"].append(f"人間発言: {user_input}")
+                if user_input: game["history"].append(f"人間発言: {user_input}")
                 game["history"].append(reply)
-                header = f"🗣️ **【ターン {game['turn_count']} / 5】**\n" if is_watch else ""
-                await send_split_message(game["channel"], header + reply)
+                await send_split_message(game["channel"], (f"🗣️ **【ターン {game['turn_count']} / 5】**\n" if is_watch else "") + reply)
     except Exception as e:
         print(f"[議論エラー]: {e}")
 
@@ -451,10 +282,10 @@ async def generate_ai_discussion(user_input="", is_watch=False):
 
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **投票タイム**（DMで `!vote プレイヤー名`）")
-    for name, p in game["players"].items():
+    await game["channel"].send("🗳️ **投票タイム**（DMで `!vote プレイヤー名` と送信してください）")
+    for n, p in game["players"].items():
         if p["is_ai"]:
-            game["votes"][name] = random.choice([n for n in game["players"].keys() if n != name])
+            game["votes"][n] = random.choice([k for k in game["players"] if k != n])
     if len([n for n, p in game["players"].items() if not p["is_ai"]]) == 0:
         await asyncio.sleep(2)
         await Tally_and_finish()
@@ -462,54 +293,52 @@ async def start_voting_phase():
 async def Tally_and_finish():
     game["phase"] = "ended"
     game["is_running"] = False
-    if game["discussion_task"]:
-        game["discussion_task"].cancel()
+    if game["discussion_task"]: game["discussion_task"].cancel()
 
     counts = {}
     for v, t in game["votes"].items():
         counts[t] = counts.get(t, 0) + 1
 
-    max_v = max(counts.values()) if counts else 0
-    executed = [n for n, c in counts.items() if c == max_v]
-
     res = "⚖️ **集計結果**\n"
     for v, t in game["votes"].items():
         res += f"・{v} ➡️ {t}\n"
 
-    exec_p = None
-    drag_p = None
-    if len(executed) == 1:
-        exec_p = executed[0]
-        res += f"\n🩸 最多得票: **{exec_p}** が処刑されました！\n"
-        if game["players"][exec_p]["role"] == "狩人" and exec_p in game["hunter_targets"]:
+    exec_p, drag_p = None, None
+    if not game["votes"] or len(counts) == 0:
+        res += "\n🩸 誰も投票しなかったため、平和村となりました。\n"
+    else:
+        max_v = max(counts.values()) if counts else 0
+        executed_candidates = [n for n, c in counts.items() if c == max_v]
+
+        if len(executed_candidates) == 1:
+            exec_p = executed_candidates[0]
+            res += f"\n🩸 最多得票: **{exec_p}** が処刑されました！\n"
+        else:
+            exec_p = random.choice(executed_candidates)
+            res += f"\n🩸 最高得票（{max_v}票）で並んだ [{', '.join(executed_candidates)}] の中から、抽選の結果 **{exec_p}** が処刑されました！\n"
+
+        if exec_p and game["players"][exec_p]["role"] == "狩人" and exec_p in game["hunter_targets"]:
             drag_p = game["hunter_targets"][exec_p]
             res += f"🎯 **狩人の道連れ発動！** ➡️ **{drag_p}** を巻き添えにしました！\n"
-    else:
-        res += "\n🩸 票が割れたため平和村となりました。\n"
 
     res += "\n🎉 **勝敗発表**\n"
-    if (exec_p and game["players"][exec_p]["role"] == "てるてる") or (drag_p and game["players"][drag_p]["role"] == "てるてる"):
+    if not exec_p:
+        res += "🐺 **人狼陣営の勝利！**（処刑者なし・平和村）\n"
+    elif (exec_p and game["players"][exec_p]["role"] == "てるてる") or (drag_p and game["players"][drag_p]["role"] == "てるてる"):
         res += "☀️ **てるてる坊主の単独勝利！**\n"
     else:
         w_win, w_lose = False, False
         if exec_p and game["players"][exec_p]["role"] == "狩人" and drag_p:
-            if game["players"][drag_p]["role"] == "人狼":
-                w_win = True
-            else:
-                w_lose = True
+            if game["players"][drag_p]["role"] == "人狼": w_win = True
+            else: w_lose = True
 
-        if w_win:
-            res += "🏆 **市民陣営の勝利！**（狩人が人狼を道連れ）\n"
-        elif w_lose:
-            res += "🐺 **人狼陣営の勝利！**（狩人が村人を道連れ）\n"
-        elif exec_p and game["players"][exec_p]["role"] == "人狼":
-            res += "🏆 **市民陣営の勝利！**\n"
-        else:
-            res += "🐺 **人狼陣営の勝利！**\n"
+        if w_win: res += "🏆 **市民陣営の勝利！**（狩人が人狼を道連れ）\n"
+        elif w_lose: res += "🐺 **人狼陣営の勝利！**（狩人が市民を道連れ）\n"
+        elif exec_p and game["players"][exec_p]["role"] == "人狼": res += "🏆 **市民陣営の勝利！**\n"
+        else: res += "🐺 **人狼陣営の勝利！**\n"
 
     res += "\n📜 **最終正解**\n"
     for n, p in game["players"].items():
         res += f"・{n}: 『{p['role']}』\n"
     res += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
-
     await send_split_message(game["channel"], res)
