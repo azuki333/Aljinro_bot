@@ -1,160 +1,194 @@
-import discord, asyncio, os
-from dotenv import load_dotenv
+import discord
+import urllib.request
+import urllib.error
+import json
+import asyncio
+import os
+import random
+import traceback
 
-# .env ファイルから環境変数を安全に読み込む
-load_dotenv()
+# --- 各種モジュールのインポート ---
+from game_logic import (
+    AI_CHARACTERS, ROLE_EMOJIS, game, send_split_message, 
+    call_llm, start_5min_timer, RoleCountSelectView, 
+    setup_game, process_night_phase, generate_ai_discussion, 
+    start_voting_phase, Tally_and_finish, reset_game_state
+)
 
-import game_logic as logicpy
-
-# 環境変数からDiscordボットのトークンを取得
-TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
-
+# --- Discord Client 設定 ---
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
+
 client = discord.Client(intents=intents)
+
+# --- 環境変数の取得 ---
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 
 @client.event
 async def on_ready():
-    print(f"Logged in as {client.user} (ID: {client.user.id})")
-    print("------")
+    print(f'🤖 起動完了: {client.user.name}')
 
 @client.event
 async def on_message(message):
+    global game
     if message.author.bot:
         return
-
     content = message.content.strip()
 
-    # DMでの投票や夜の行動処理
-    if isinstance(message.channel, discord.DMChannel):
-        if not logicpy.game["is_running"]:
-            await message.channel.send("現在進行中のゲームはありません。")
+    try:
+        if content == '!help':
+            await message.reply("🤖 コマンド: `!jinro solo`, `!jinro multi`, `!jinro watch`, `!chat`, `!test`")
             return
 
-        # プレイヤー自身の特定
-        my_name = None
-        for n, p in logicpy.game["players"].items():
-            if p.get("user_obj") and p["user_obj"].id == message.author.id:
-                my_name = n
-                break
-
-        if not my_name:
-            await message.channel.send("あなたは現在のゲームに参加していません。")
+        if content == '!test':
+            async with message.channel.typing():
+                res = await call_llm("「テスト成功」と返答してください。", debug=True)
+                await send_split_message(message.channel, res)
             return
 
-        # 投票フェーズの処理
-        if logicpy.game["phase"] == "voting" and content.startswith("!vote"):
-            target = content[5:].strip()
-            if target in logicpy.game["players"] or target == "墓場":
-                logicpy.game["votes"][my_name] = target
-                await message.channel.send(f"🗳️ **{target}** に投票しました。")
-                
-                # 全員（人間＋AI）の投票が揃ったら集計
-                if len(logicpy.game["votes"]) == len(logicpy.game["players"]):
-                    await logicpy.Tally_and_finish()
+        if content.startswith('!chat'):
+            q = content[5:].strip()
+            if q:
+                async with message.channel.typing():
+                    reply = await call_llm(f"ユーザーへ返答: {q}")
+                    if reply:
+                        await send_split_message(message.channel, reply)
+            return
+
+        # ==========================
+        # DMでのプライベート行動処理
+        # ==========================
+        if isinstance(message.channel, discord.DMChannel):
+            p_name = None
+            for n, p in game["players"].items():
+                if p.get("user_obj") and p["user_obj"].id == message.author.id:
+                    p_name = n
+                    break
+
+            if not p_name or not game["is_running"]:
+                await message.reply("現在参加しているゲームはありません。")
+                return
+
+            if content.startswith('!fortune') and game["phase"] == "night":
+                t = content[8:].strip()
+                if t == "墓場":
+                    await message.reply(f"🔮 墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』")
+                elif t in game["players"] and t != p_name:
+                    await message.reply(f"🔮 {t} の役職は『{game['players'][t]['role']}』です。")
+                return
+
+            if content.startswith('!steal') and game["phase"] == "night":
+                t = content[6:].strip()
+                if t in game["players"] and t != p_name:
+                    my_old = game["players"][p_name]["role"]
+                    target_role = game["players"][t]["role"]
+                    game["players"][p_name]["role"] = target_role
+                    game["players"][t]["role"] = my_old
+                    await message.reply(f"🎭 {t} から役職を盗みました！ 新役職: 『{target_role}』")
+                return
+
+            if content.startswith('!hunt') and game["phase"] == "night":
+                t = content[6:].strip()
+                if t in game["players"] and t != p_name:
+                    game["hunter_targets"][p_name] = t
+                    await message.reply(f"🎯 狩人能力: {t} を指定しました。")
+                return
+
+            if content.startswith('!witch') and game["phase"] == "night":
+                t = content[7:].strip()
+                if t in game["players"]:
+                    await message.reply(f"🧙 魔女っ子能力: {t} の役職は『{game['players'][t]['role']}』です。")
+                return
+
+            if content.startswith('!vote') and game["phase"] == "voting":
+                t = content[5:].strip()
+                if t in game["players"] or t == "墓場":
+                    game["votes"][p_name] = t
+                    await message.reply(f"✅ **{t}** に投票しました！")
+                    if len(game["votes"]) == len(game["players"]):
+                        await Tally_and_finish()
+                return
+            return
+
+        # ==========================
+        # サーバーチャンネルでのコマンド処理
+        # ==========================
+        if content.startswith('!jinro'):
+            parts = content[6:].strip().split(maxsplit=1)
+            sub = parts[0].lower() if len(parts) > 0 else ""
+
+            if sub in ['clear', 'リセット']:
+                reset_game_state()
+                await message.reply('🔄 リセットしました！')
+                return
+
+            if sub in ['watch', '観戦']:
+                if game["is_running"]:
+                    await message.reply("⚠️ ゲームが既に進行中です。")
+                    return
+                reset_game_state()
+                asyncio.create_task(setup_game(message.channel, "watch"))
+                return
+
+            if sub in ['next', '次']:
+                if game["is_running"] and game["mode"] == "watch":
+                    await generate_ai_discussion(is_watch=True)
+                else:
+                    await message.reply("⚠️ 現在、観戦モードの進行中ではありません。")
+                return
+
+            if sub == "solo":
+                if game["is_running"]:
+                    await message.reply("⚠️ ゲームが既に進行中です。")
+                    return
+                reset_game_state()
+                view = RoleCountSelectView("solo", [message.author])
+                await message.channel.send(embed=view.create_embed(), view=view)
+                return
+
+            # マルチモード募集開始
+            if sub == "multi":
+                if game["is_running"]:
+                    await message.reply("⚠️ ゲームが既に進行中です。")
+                    return
+                reset_game_state()
+                game["pending_multi_host"] = message.author
+                game["pending_multi_users"] = [message.author]
+                game["phase"] = "recruiting"
+                game["channel"] = message.channel
+                await message.reply("👥 **マルチモード参加者募集中！**\n参加したい人は `!join` と送信してください。\nホストは準備ができたら `!start` で役職選択へ進んでください。")
+                return
+
+            if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
+                actual_text = content[6:].strip() or "（進行）"
+                await generate_ai_discussion(user_input=f"{message.author.display_name}: {actual_text}")
+                return
+
+        # マルチモードの参加受付 (`!join`)
+        if content == "!join" and game.get("phase") == "recruiting":
+            user = message.author
+            if user not in game.get("pending_multi_users", []):
+                game["pending_multi_users"].append(user)
+                await message.channel.send(f"👤 **{user.display_name}** が参加しました！（現在 {len(game['pending_multi_users'])}人）")
+            return
+
+        # マルチモードのゲーム開始 (`!start`)
+        if content == "!start" and game.get("phase") == "recruiting":
+            if message.author == game.get("pending_multi_host"):
+                users = game["pending_multi_users"]
+                if len(users) > 5:
+                    await message.channel.send("⚠️ 人間は最大5人まで参加可能です。")
+                    return
+                view = RoleCountSelectView("multi", users)
+                await message.channel.send(embed=view.create_embed(), view=view)
             else:
-                await message.channel.send("⚠️ 存在するプレイヤー名または「墓場」を指定してください。")
+                await message.reply("⚠️ 募集を開始したホストのみ `!start` を実行できます。")
             return
 
-        # 夜の行動（占い・怪盗など）
-        if logicpy.game["phase"] == "night":
-            p_data = logicpy.game["players"][my_name]
-            if content.startswith("!fortune "):
-                if p_data["role"] != "占い師":
-                    await message.channel.send("あなたは占い師ではありません。")
-                    return
-                target = content[9:].strip()
-                if target == "墓場":
-                    await message.channel.send(f"🔮 墓場のカード: 『{logicpy.game['center_cards'][0]}』, 『{logicpy.game['center_cards'][1]}』")
-                elif target in logicpy.game["players"] and target != my_name:
-                    await message.channel.send(f"🔮 {target} の役職は 『{logicpy.game['players'][target]['role']}』 です。")
-                else:
-                    await message.channel.send("⚠️ 正しい対象を指定してください。")
-            elif content.startswith("!steal "):
-                if p_data["role"] != "怪盗":
-                    await message.channel.send("あなたは怪盗ではありません。")
-                    return
-                target = content[7:].strip()
-                if target in logicpy.game["players"] and target != my_name:
-                    my_old = p_data["role"]
-                    target_role = logicpy.game["players"][target]["role"]
-                    logicpy.game["players"][my_name]["role"] = target_role
-                    logicpy.game["players"][target]["role"] = my_old
-                    await message.channel.send(f"🕵️ {target} から役職を盗みました！ あなたの新しい役職は 『{target_role}』 です。")
-                else:
-                    await message.channel.send("⚠️ 正しいプレイヤーを指定してください。")
-            return
-
-        return
-
-    # サーバーチャンネルでのコマンド処理
-    if content.startswith("!jinro"):
-        parts = content.split()
-        if len(parts) > 1 and parts[1] == "reset":
-            logicpy.reset_game_state()
-            await message.channel.send("🔄 ゲームを強制リセットしました。")
-            return
-
-        if len(parts) > 1 and parts[1] == "solo":
-            if logicpy.game["is_running"]:
-                await message.channel.send("⚠️ 既にゲームが進行中です。")
-                return
-            logicpy.reset_game_state()
-            await message.channel.send("🎴 **ソロモードの役職枚数設定**", view=logicpy.RoleCountSelectView("solo", [message.author]))
-            return
-
-        if len(parts) > 1 and parts[1] == "multi":
-            if logicpy.game["is_running"]:
-                await message.channel.send("⚠️ 既にゲームが進行中です。")
-                return
-            logicpy.reset_game_state()
-            await message.channel.send("👥 参加者を募集中...（参加したい人は `!join` と送信してください。ホストが `!start` で開始します）")
-            logicpy.game["pending_multi_host"] = message.author
-            logicpy.game["pending_multi_users"] = [message.author]
-            logicpy.game["phase"] = "recruiting"
-            logicpy.game["channel"] = message.channel
-            return
-
-        if len(parts) > 1 and parts[1] == "watch":
-            if logicpy.game["is_running"]:
-                await message.channel.send("⚠️ 既にゲームが進行中です。")
-                return
-            logicpy.reset_game_state()
-            asyncio.create_task(logicpy.setup_game(message.channel, "watch"))
-            return
-
-        if len(parts) > 1 and parts[1] == "next" and logicpy.game["mode"] == "watch":
-            await logicpy.generate_ai_discussion("（次のターンへ進む）", is_watch=True)
-            return
-
-        # 議論中の発言 or AIへの話しかけ
-        if logicpy.game["is_running"] and logicpy.game["phase"] == "discussion":
-            actual_text = content[6:].strip()
-            await logicpy.handle_jinro_command(message, actual_text, message.author.display_name)
-            return
-
-        await message.channel.send("🐺 **ワンナイト人狼ボットの使い方**\n- `!jinro solo` : ソロモード開始\n- `!jinro multi` : マルチモード募集\n- `!jinro watch` : 観戦モード開始\n- `!jinro reset` : リセット")
-
-    # マルチモードの参加受付
-    if content == "!join" and logicpy.game.get("phase") == "recruiting":
-        user = message.author
-        if user not in logicpy.game.get("pending_multi_users", []):
-            logicpy.game["pending_multi_users"].append(user)
-            await message.channel.send(f"👤 {user.display_name} が参加しました！（現在 {len(logicpy.game['pending_multi_users'])}人）")
-        return
-
-    # マルチモードのゲーム開始
-    if content == "!start" and logicpy.game.get("phase") == "recruiting":
-        if message.author == logicpy.game.get("pending_multi_host"):
-            users = logicpy.game["pending_multi_users"]
-            if len(users) > 5:
-                await message.channel.send("⚠️ 人間は最大5人まで参加可能です。")
-                return
-            await message.channel.send(f"🎴 参加者 {len(users)}名で役職設定に進みます！", view=logicpy.RoleCountSelectView("multi", users))
-        return
+    except Exception as e:
+        print(f"[Error]: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    if not TOKEN:
-        print("Error: DISCORD_BOT_TOKEN is missing.")
-    else:
-        client.run(TOKEN)
+    client.run(DISCORD_TOKEN)
