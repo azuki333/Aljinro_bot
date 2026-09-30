@@ -212,7 +212,7 @@ async def setup_game(channel, mode, human_users=None):
     member_list_text = "👥 **【参加プレイヤー一覧】**\n" + "\n".join([f"・{n} ({'AI' if p['is_ai'] else '人間'})" for n, p in game["players"].items()])
 
     if mode == "watch":
-        await channel.send(f"🍿 **観戦モード開始！** 自動で議論が始まります。\n\n{member_list_text}")
+        await channel.send(f"🍿 **観戦モード開始！** `!jinro next` で1ターンずつ進めてください。\n\n{member_list_text}")
     else:
         await channel.send(f"🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。\n\n{member_list_text}")
         
@@ -226,7 +226,7 @@ async def process_night_phase():
             if p["role"] == "人狼":
                 msg += f"仲間: {', '.join([w for w in wws if w != n]) or 'なし（または墓場にいます）'}"
             elif p["role"] == "占い師":
-                msg += "💬 占うには `!fortune プレイヤー名` または `!fortune 墓場`"
+                msg += "💬 占いには `!fortune プレイヤー名` または `!fortune 墓場`"
             elif p["role"] == "怪盗":
                 msg += "💬 盗むには `!steal プレイヤー名`"
             elif p["role"] == "狩人":
@@ -262,8 +262,7 @@ async def process_night_phase():
 
     game["phase"] = "discussion"
     if game["mode"] == "watch":
-        await game["channel"].send("☀️ **朝になりました！AIたちの議論が自動で始まります。**")
-        asyncio.create_task(generate_ai_discussion(is_watch=True))
+        await game["channel"].send("☀️ **朝になりました！ `!jinro next` で議論を1ターン進めてください。**")
     elif game["mode"] == "multi":
         await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` / 投票は `!vote プレイヤー名` または `!vote 平和`)**")
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
@@ -313,14 +312,15 @@ async def generate_ai_discussion(user_input="", is_watch=False):
     if game["turn_count"] >= 5:
         await game["channel"].send("\n🚨 **5ターン終了！投票タイムへ移行します。**")
         await start_voting_phase()
-    elif is_watch or game["mode"] == "watch":
-        await asyncio.sleep(4)
-        if game["is_running"] and game["phase"] == "discussion":
-            await generate_ai_discussion(is_watch=True)
 
 async def handle_jinro_command(message, actual_text, author_name):
-    if game["mode"] == "solo" or game["mode"] == "watch":
+    if game["mode"] == "solo":
         await generate_ai_discussion(user_input=f"{author_name}: {actual_text}")
+    elif game["mode"] == "watch":
+        if actual_text.strip().lower() in ["next", "n", "次"]:
+            await generate_ai_discussion()
+        else:
+            await generate_ai_discussion(user_input=f"{author_name}: {actual_text}")
     elif game["mode"] == "multi":
         ai_name, target_ai = find_mentioned_ai(actual_text)
         
@@ -341,7 +341,7 @@ async def handle_jinro_command(message, actual_text, author_name):
                     if reply:
                         game["history"].append(f"{author_name}: {actual_text}")
                         game["history"].append(f"{ai_name}の返答: {reply}")
-                        await send_split_message(message.channel, f"🗣️️ **{ai_name}**: {reply}")
+                        await send_split_message(message.channel, f"🗣 **{ai_name}**: {reply}")
             except Exception as e:
                 print(f"[AI個別返答エラー]: {e}")
         else:
