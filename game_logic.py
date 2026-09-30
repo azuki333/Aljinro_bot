@@ -212,7 +212,7 @@ async def setup_game(channel, mode, human_users=None):
     member_list_text = "👥 **【参加プレイヤー一覧】**\n" + "\n".join([f"・{n} ({'AI' if p['is_ai'] else '人間'})" for n, p in game["players"].items()])
 
     if mode == "watch":
-        await channel.send(f"🍿 **観戦モード開始！** `!jinro next` で次のターンへ進みます。\n\n{member_list_text}")
+        await channel.send(f"🍿 **観戦モード開始！** 自動で議論が始まります。\n\n{member_list_text}")
     else:
         await channel.send(f"🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。\n\n{member_list_text}")
         
@@ -261,35 +261,42 @@ async def process_night_phase():
                 p["ai_knows"] = "平穏な夜でした。"
 
     game["phase"] = "discussion"
-    if game["mode"] != "watch":
-        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` ※AIの名前を入れるとそのAIが答えます / 平和を願う場合は `!vote 平和` をDMで)**")
-        if game["mode"] == "multi":
-            game["discussion_task"] = asyncio.create_task(start_5min_timer())
-        else:
-            await generate_ai_discussion("（議論開始）")
+    if game["mode"] == "watch":
+        await game["channel"].send("☀️ **朝になりました！AIたちの議論が自動で始まります。**")
+        asyncio.create_task(generate_ai_discussion(is_watch=True))
+    elif game["mode"] == "multi":
+        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` / 投票は `!vote プレイヤー名` または `!vote 平和`)**")
+        game["discussion_task"] = asyncio.create_task(start_5min_timer())
+    else:
+        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` / 投票は `!vote プレイヤー名` または `!vote 平和`)**")
+        asyncio.create_task(generate_ai_discussion())
 async def generate_ai_discussion(user_input="", is_watch=False):
     if game["phase"] != "discussion": return
     game["turn_count"] += 1
-    ai_info = [f"- {n}: 設定({p['desc']}), 役職({p['role']}), 夜行動({p.get('ai_knows','')})" for n, p in game["players"].items() if p["is_ai"]]
     
-    phase_guide = (
-        "【現在の議論の進行度】" if game["turn_count"] <= 2 else "【現在の議論の段階：推理と矛盾の追及】"
-    )
+    ai_names = [n for n, p in game["players"].items() if p["is_ai"]]
+    if not ai_names: return
+    speaker_name = ai_names[(game["turn_count"] - 1) % len(ai_names)]
+    speaker_data = game["players"][speaker_name]
+
+    ai_info = f"- {speaker_name}: 設定({speaker_data['desc']}), 役職({speaker_data['role']}), 夜行動({speaker_data.get('ai_knows','')})"
+    
+    phase_guide = "【現在の議論の段階】"
     if game["turn_count"] <= 2:
-        phase_guide += "まずは自分の役職や夜の行動結果をしっかりと主張してください。"
+        phase_guide += "自分の役職や夜の行動結果を短く主張してください。"
     else:
-        phase_guide += "お互いの発言の矛盾点や、役職の数がおかしくないか（破綻していないか）を鋭く指摘し合い、誰を「村から送り出す（追放する）」べきか論理的に議論してください。"
+        phase_guide += "お互いの発言の矛盾点や、誰を村から送り出すべきかについて、他の人に意見を問いかけたり主張してください。"
 
     prompt = (
-        f"ワンナイト人狼のゲーム内における友好的な戦略議論（ターン{game['turn_count']}/5）。\n"
+        f"ワンナイト人狼の議論タイム（ターン{game['turn_count']}/5）。\n"
+        f"あなたは『{speaker_name}』です。\n"
+        f"{ai_info}\n"
         f"{phase_guide}\n\n"
-        f"【戦略・ロールプレイ指示】\n"
-        f"- 人狼陣営（人狼・狂人）や てるてる は、形勢を有利にするために積極的に嘘の役職を騙ったり、巧みなブラフ（揺さぶり）を仕掛けたりしてください。\n"
-        f"- 村人陣営（市民・占い師・狩人・魔女っ子など）は、村の勝利のために自分の本当の役職や夜の行動結果を正確に主張してください。\n"
-        f"- 単なる情報の羅列ではなく、「AさんとBさんの発言が矛盾している」「怪盗に役職を盗まれている可能性がある」など、盤面の矛盾を突く高度な推理を展開してください。\n"
-        f"- ※表現上の注意: 追放や投票先を決める文脈では、「処刑」という強い言葉の代わりに「村から送り出す」「追放する」「選ぶ」という柔らかい表現を使用してください。\n\n"
-        f"【AI一覧】\n" + "\n".join(ai_info) + f"\n"
-        f"【これまでの議論ログ】\n" + "\n".join(game["history"][-12:]) + f"\n"
+        f"【ルール】\n"
+        f"- 長々と一人で喋らず、実際のチャットのように**2〜4文程度の自然な短さ**で発言してください。\n"
+        f"- 他のプレイヤーの名前を出して意見を振ったり、自分の考えを手短に伝えてください。\n"
+        f"- 強い言葉（処刑など）は避け、柔らかい表現を使ってください。\n\n"
+        f"【これまでの議論ログ】\n" + "\n".join(game["history"][-10:]) + f"\n"
         f"【最新の発言・状況】\n{user_input or '（議論進行中）'}"
     )
     
@@ -298,14 +305,18 @@ async def generate_ai_discussion(user_input="", is_watch=False):
             reply = await call_llm(prompt)
             if reply:
                 if user_input: game["history"].append(f"人間発言: {user_input}")
-                game["history"].append(reply)
-                await send_split_message(game["channel"], (f"🗣️ **【ターン {game['turn_count']} / 5】**\n" if is_watch else "") + reply)
+                game["history"].append(f"{speaker_name}: {reply}")
+                await send_split_message(game["channel"], f"🗣️ **【ターン {game['turn_count']} / 5】 {speaker_name}**: {reply}")
     except Exception as e:
         print(f"[議論エラー]: {e}")
 
     if game["turn_count"] >= 5:
         await game["channel"].send("\n🚨 **5ターン終了！投票タイムへ移行します。**")
         await start_voting_phase()
+    elif is_watch or game["mode"] == "watch":
+        await asyncio.sleep(4)
+        if game["is_running"] and game["phase"] == "discussion":
+            await generate_ai_discussion(is_watch=True)
 
 async def handle_jinro_command(message, actual_text, author_name):
     if game["mode"] == "solo" or game["mode"] == "watch":
@@ -330,7 +341,7 @@ async def handle_jinro_command(message, actual_text, author_name):
                     if reply:
                         game["history"].append(f"{author_name}: {actual_text}")
                         game["history"].append(f"{ai_name}の返答: {reply}")
-                        await send_split_message(message.channel, f"🗣️ **{ai_name}**: {reply}")
+                        await send_split_message(message.channel, f"🗣️️ **{ai_name}**: {reply}")
             except Exception as e:
                 print(f"[AI個別返答エラー]: {e}")
         else:
@@ -383,7 +394,7 @@ async def start_voting_phase():
         await asyncio.sleep(1)
         await Tally_and_finish()
     else:
-        await game["channel"].send("🗳️️ AIの投票が完了しました！人間プレイヤーはDMで `!vote プレイヤー名` または `!vote 平和` と送信して投票を完了させてください。")
+        await game["channel"].send("🗳 AIの投票が完了しました！人間プレイヤーはDMで `!vote プレイヤー名` または `!vote 平和` と送信して投票を完了させてください。")
 
 async def Tally_and_finish():
     game["phase"] = "ended"
@@ -455,4 +466,6 @@ async def Tally_and_finish():
         res += f"・{n}: 『{p['role']}』\n"
     res += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
     await send_split_message(game["channel"], res)
-            
+        
+        
+    
