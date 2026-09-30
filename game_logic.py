@@ -339,18 +339,51 @@ async def handle_jinro_command(message, actual_text, author_name):
 
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **投票タイム**（DMで `!vote プレイヤー名` または `!vote 平和` と送信してください）")
+    await game["channel"].send("🗳️ **投票タイム**（AIたちがこれまでの議論をもとに投票先を考えています...）")
     
+    for n, p in game["players"].items():
+        if not p["is_ai"]:
+            continue
+            
+        ai_info = f"設定({p['desc']}), 役職({p['role']}), 夜行動({p.get('ai_knows','')})"
+        prompt = (
+            f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です。\n"
+            f"{ai_info}\n"
+            f"【これまでの議論ログ】\n" + "\n".join(game["history"][-15:]) + f"\n\n"
+            f"これまでの議論や状況を踏まえて、誰を「村から送り出す（追放する）」ために投票するか、あるいは誰も送り出さない「平和」にするかを決めてください。\n"
+            f"【回答ルール】\n"
+            f"- 投票したいプレイヤーの名前（例: アル）、または「平和」のいずれか**一単語のみ**を答えてください。余計な解説や文章は一切含めないでください。"
+        )
+        
+        try:
+            reply = await call_llm(prompt)
+            if reply:
+                cleaned_reply = reply.strip().replace("「", "").replace("」", "").replace("。", "")
+                voted_target = None
+                if "平和" in cleaned_reply:
+                    voted_target = "平和"
+                else:
+                    for target_name in game["players"].keys():
+                        if target_name in cleaned_reply:
+                            voted_target = target_name
+                            break
+                
+                if not voted_target:
+                    voted_target = random.choice([k for k in game["players"] if k != n])
+                
+                game["votes"][n] = voted_target
+            else:
+                game["votes"][n] = random.choice([k for k in game["players"] if k != n])
+        except Exception as e:
+            print(f"[AI投票エラー ({n})]: {e}")
+            game["votes"][n] = random.choice([k for k in game["players"] if k != n])
+
     human_players = [n for n, p in game["players"].items() if not p["is_ai"]]
     if len(human_players) == 0:
-        for n, p in game["players"].items():
-            if p["is_ai"]:
-                if random.random() < 0.2:
-                    game["votes"][n] = "平和"
-                else:
-                    game["votes"][n] = random.choice([k for k in game["players"] if k != n])
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
         await Tally_and_finish()
+    else:
+        await game["channel"].send("🗳️️ AIの投票が完了しました！人間プレイヤーはDMで `!vote プレイヤー名` または `!vote 平和` と送信して投票を完了させてください。")
 
 async def Tally_and_finish():
     game["phase"] = "ended"
@@ -423,5 +456,3 @@ async def Tally_and_finish():
     res += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
     await send_split_message(game["channel"], res)
             
-        
-    
