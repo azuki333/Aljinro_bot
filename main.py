@@ -7,7 +7,6 @@ import os
 import random
 import traceback
 
-# --- 各種モジュールのインポート ---
 from game_logic import (
     AI_CHARACTERS, ROLE_EMOJIS, game, send_split_message, 
     call_llm, start_5min_timer, RoleCountSelectView, 
@@ -15,14 +14,11 @@ from game_logic import (
     handle_jinro_command, start_voting_phase, Tally_and_finish, reset_game_state
 )
 
-# --- Discord Client 設定 ---
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 client = discord.Client(intents=intents)
-
-# --- 環境変数の取得 ---
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 
 @client.event
@@ -38,7 +34,7 @@ async def on_message(message):
 
     try:
         if content == '!help':
-            await message.reply("🤖 コマンド: `!jinro solo`, `!jinro multi`, `!jinro watch`, `!chat`, `!test`")
+            await message.reply("🤖 コマンド: `!jinro solo`, `!jinro multi`, `!jinro watch`, `!jinro next`, `!chat`, `!test`")
             return
 
         if content == '!test':
@@ -117,10 +113,7 @@ async def on_message(message):
                     if len(voted_humans) == len(human_names):
                         for n, p in game["players"].items():
                             if p["is_ai"] and n not in game["votes"]:
-                                if random.random() < 0.2:
-                                    game["votes"][n] = "平和"
-                                else:
-                                    game["votes"][n] = random.choice([k for k in game["players"] if k != n])
+                                game["votes"][n] = "平和" if random.random() < 0.2 else random.choice([k for k in game["players"] if k != n])
                         
                         if len(game["votes"]) == len(game["players"]):
                             await Tally_and_finish()
@@ -133,6 +126,7 @@ async def on_message(message):
         if content.startswith('!jinro'):
             parts = content[6:].strip().split(maxsplit=1)
             sub = parts[0].lower() if len(parts) > 0 else ""
+            actual_text = parts[1] if len(parts) > 1 else ""
 
             if sub in ['clear', 'リセット']:
                 reset_game_state()
@@ -148,10 +142,11 @@ async def on_message(message):
                 return
 
             if sub in ['next', '次']:
-                if game["is_running"] and game["mode"] == "watch":
-                    await generate_ai_discussion(is_watch=True)
+                if game["is_running"] and game["phase"] == "discussion":
+                    # 観戦モードのときは actual_text が空、ソロなどのときは入力された意見を渡す
+                    await generate_ai_discussion(user_input=actual_text)
                 else:
-                    await message.reply("⚠️ 現在、観戦モードの進行中ではありません。")
+                    await message.reply("⚠️ 現在、議論の進行中ではありません。")
                 return
 
             if sub == "solo":
@@ -175,10 +170,10 @@ async def on_message(message):
                 await message.reply("👥 **マルチモード参加者募集中！**\n参加したい人は `!join` と送信してください。\nホストは準備ができたら `!start` で役職選択へ進んでください。")
                 return
 
-            if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch":
-                actual_text = content[6:].strip() or "（進行）"
-                await handle_jinro_command(message, actual_text, message.author.display_name)
-                return
+        # サーバーチャンネルでの通常発言（マルチやソロの議論中）
+        if game["is_running"] and game["phase"] == "discussion" and game["mode"] != "watch" and not content.startswith('!'):
+            await handle_jinro_command(message, content, message.author.display_name)
+            return
 
         if content == "!join" and game.get("phase") == "recruiting":
             user = message.author
