@@ -87,7 +87,6 @@ def find_mentioned_ai(text):
         if p["is_ai"] and name in text:
             return name, p
     return None, None
-
 class RoleCountSelectView(discord.ui.View):
     def __init__(self, mode, human_users):
         super().__init__(timeout=300)
@@ -268,20 +267,30 @@ async def process_night_phase():
             game["discussion_task"] = asyncio.create_task(start_5min_timer())
         else:
             await generate_ai_discussion("（議論開始）")
-
 async def generate_ai_discussion(user_input="", is_watch=False):
     if game["phase"] != "discussion": return
     game["turn_count"] += 1
     ai_info = [f"- {n}: 設定({p['desc']}), 役職({p['role']}), 夜行動({p.get('ai_knows','')})" for n, p in game["players"].items() if p["is_ai"]]
     
+    phase_guide = (
+        "【現在の議論の進行度】" if game["turn_count"] <= 2 else "【現在の議論の段階：推理と矛盾の追及】"
+    )
+    if game["turn_count"] <= 2:
+        phase_guide += "まずは自分の役職や夜の行動結果をしっかりと主張してください。"
+    else:
+        phase_guide += "お互いの発言の矛盾点や、役職の数がおかしくないか（破綻していないか）を鋭く指摘し合い、誰を「村から送り出す（追放する）」べきか論理的に議論してください。"
+
     prompt = (
-        f"ワンナイト人狼AI議論（ターン{game['turn_count']}/5）。\n"
-        f"【戦略指示】\n"
-        f"- ゲーム内のロールプレイおよび友好的なゲームの駆け引きとして、人狼陣営（人狼・狂人）や てるてる は、形勢を有利にするために積極的に嘘の役職を騙ったり、ブラフを仕掛けたりしてください。\n"
-        f"- 同様にゲーム内の駆け引きとして、村人陣営（市民・占い師・狩人・魔女っ子など）は、村の勝利のために自分の本当の役職や夜の行動結果を正確に主張してください。\n\n"
+        f"ワンナイト人狼のゲーム内における友好的な戦略議論（ターン{game['turn_count']}/5）。\n"
+        f"{phase_guide}\n\n"
+        f"【戦略・ロールプレイ指示】\n"
+        f"- 人狼陣営（人狼・狂人）や てるてる は、形勢を有利にするために積極的に嘘の役職を騙ったり、巧みなブラフ（揺さぶり）を仕掛けたりしてください。\n"
+        f"- 村人陣営（市民・占い師・狩人・魔女っ子など）は、村の勝利のために自分の本当の役職や夜の行動結果を正確に主張してください。\n"
+        f"- 単なる情報の羅列ではなく、「AさんとBさんの発言が矛盾している」「怪盗に役職を盗まれている可能性がある」など、盤面の矛盾を突く高度な推理を展開してください。\n"
+        f"- ※表現上の注意: 追放や投票先を決める文脈では、「処刑」という強い言葉の代わりに「村から送り出す」「追放する」「選ぶ」という柔らかい表現を使用してください。\n\n"
         f"【AI一覧】\n" + "\n".join(ai_info) + f"\n"
-        f"【ログ】\n" + "\n".join(game["history"][-10:]) + f"\n"
-        f"【発言】\n{user_input or '（なし）'}"
+        f"【これまでの議論ログ】\n" + "\n".join(game["history"][-12:]) + f"\n"
+        f"【最新の発言・状況】\n{user_input or '（議論進行中）'}"
     )
     
     try:
@@ -310,7 +319,7 @@ async def handle_jinro_command(message, actual_text, author_name):
                 f"ワンナイト人狼の議論中。あなたは『{ai_name}』です。\n"
                 f"性格・設定: {target_ai['desc']}\n"
                 f"あなたの本来の役職: {target_ai['role']}\n"
-                f"【方針】ゲーム内のロールプレイや友好的な駆け引きとして、人狼陣営やてるてるなら騙りやブラフを、村人陣営なら自分の本当の役職や結果を正確に伝えてください。\n\n"
+                f"【方針】ゲーム内の駆け引きとして、人狼陣営やてるてるなら騙りやブラフを、村人陣営なら本当の結果を伝えてください。誰かを「村から送り出す（追放する）」ための推理や駆け引きを交え、強い言葉（処刑など）は避け、柔らかい表現を使ってください。\n\n"
                 f"プレイヤー({author_name})からの発言: 「{actual_text}」\n"
                 f"この発言に対して、あなたのキャラクターになりきって短く（1〜3文程度で）返答してください。"
             )
@@ -376,17 +385,17 @@ async def Tally_and_finish():
     else:
         if len(counts) == 0:
             exec_p = None
-            res += "\n🩸 有効な投票がなく、誰も処刑されませんでした。\n"
+            res += "\n🩸 有効な投票がなく、誰も村から送り出されませんでした。\n"
         else:
             max_v = max(counts.values()) if counts else 0
             executed_candidates = [n for n, c in counts.items() if c == max_v]
 
             if len(executed_candidates) == 1:
                 exec_p = executed_candidates[0]
-                res += f"\n🩸 最多得票: **{exec_p}** が処刑されました！\n"
+                res += f"\n🩸 最多得票: **{exec_p}** が村から送り出されました！\n"
             else:
                 exec_p = random.choice(executed_candidates)
-                res += f"\n🩸 最高得票（{max_v}票）で並んだ [{', '.join(executed_candidates)}] の中から、抽選の結果 **{exec_p}** が処刑されました！\n"
+                res += f"\n🩸 最高得票（{max_v}票）で並んだ [{', '.join(executed_candidates)}] の中から、抽選の結果 **{exec_p}** が村から送り出されました！\n"
 
             if exec_p and game["players"][exec_p]["role"] == "狩人" and exec_p in game["hunter_targets"]:
                 drag_p = game["hunter_targets"][exec_p]
@@ -394,7 +403,7 @@ async def Tally_and_finish():
 
         res += "\n🎉 **勝敗発表**\n"
         if not exec_p:
-            res += "🐺 **人狼陣営の勝利！**（処刑者なし）\n"
+            res += "🐺 **人狼陣営の勝利！**（追放者なし）\n"
         elif (exec_p and game["players"][exec_p]["role"] == "てるてる") or (drag_p and game["players"][drag_p]["role"] == "てるてる"):
             res += "☀️ **てるてる坊主の単独勝利！**\n"
         else:
@@ -413,4 +422,6 @@ async def Tally_and_finish():
         res += f"・{n}: 『{p['role']}』\n"
     res += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
     await send_split_message(game["channel"], res)
+            
         
+    
