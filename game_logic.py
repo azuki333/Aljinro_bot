@@ -190,7 +190,6 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
-
 async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
@@ -227,10 +226,10 @@ async def setup_game(channel, mode, human_users=None):
         await channel.send(f"🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。\n\n{member_list_text}")
         
     await process_night_phase()
+
 async def process_night_phase():
     wws = [n for n, p in game["players"].items() if p["role"] == "人狼"]
     
-    # 1. 人間のプレイヤーへのDM通知
     for n, p in game["players"].items():
         if not p["is_ai"] and p["user_obj"]:
             msg = f"🌙 **役職: 『{p['role']}』**\n"
@@ -249,7 +248,6 @@ async def process_night_phase():
             try: await p["user_obj"].send(msg)
             except: pass
 
-    # 2. AIの夜の行動（役職の入れ替わりを正確に1対1で同期処理）
     for n, p in game["players"].items():
         if p["is_ai"]:
             if p["role"] == "人狼":
@@ -262,7 +260,6 @@ async def process_night_phase():
                 t = random.choice([k for k in game["players"] if k != n])
                 my_old_role = game["players"][n]["role"]
                 target_role = game["players"][t]["role"]
-                
                 game["players"][n]["role"] = target_role
                 game["players"][t]["role"] = my_old_role
                 p["ai_knows"] = f"{t} と役職を交換しました。"
@@ -448,7 +445,7 @@ async def Tally_and_finish():
         role = game["players"][target]["role"]
         win_reason = f"🎉 人狼である **{target}** が処刑されたため、**村人陣営の勝利**です！" if role == "人狼" else f"😢 処刑された **{target}** は人狼ではありませんでした。**人狼陣営の勝利**です！"
     else:
-        win_reason = "⚖️ 同票のため誰も処刑されず、人狼陣営の勝利です！"
+        win_reason = "⚖️️ 同票のため誰も処刑されず、人狼陣営の勝利です！"
 
     roles_text = "🎴 **【役職公開】**\n" + "\n".join([f"・{n}: 当初({p['original_role']}) ➔ 最終({p['role']})" for n, p in game["players"].items()])
     center_text = f"・中央の余りカード: {', '.join(game['center_cards'])}"
@@ -456,5 +453,3 @@ async def Tally_and_finish():
     if game.get("channel"):
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
     reset_game_state()
-    
-    
