@@ -231,7 +231,6 @@ async def setup_game(channel, mode, human_users=None):
 async def process_night_phase():
     wws = [n for n, p in game["players"].items() if p["role"] == "人狼"]
     
-    # 1. 人間のプレイヤーへのDM通知
     for n, p in game["players"].items():
         if not p["is_ai"] and p["user_obj"]:
             msg = f"🌙 **役職: 『{p['role']}』**\n"
@@ -250,7 +249,6 @@ async def process_night_phase():
             try: await p["user_obj"].send(msg)
             except: pass
 
-    # 2. AIの夜の行動（役職の入れ替わりを正確に1対1で同期処理）
     for n, p in game["players"].items():
         if p["is_ai"]:
             if p["role"] == "人狼":
@@ -277,8 +275,6 @@ async def process_night_phase():
                 p["ai_knows"] = f"{t} の役職は『{game['players'][t]['role']}』でした。"
             else:
                 p["ai_knows"] = "平穏な夜の行動でした。"
-
-    # 夜フェーズを維持し、人間が行動を入力できるように待機する
 async def generate_ai_discussion(user_input=""):
     if game["phase"] != "discussion": 
         return
@@ -349,9 +345,14 @@ async def generate_ai_discussion(user_input=""):
         await game["channel"].send(f"👇 **【ターン {game['turn_count']} 終了】** 次のターンに進むには `!jinro next` と入力してください。")
 
 async def handle_jinro_command(message, actual_text, author_name):
-    # !jinro next などのあとに会話文が続いている場合を考慮して切り分ける
     text_lower = actual_text.strip().lower()
     
+    # ⚡【完全確実な強制リセット】AIを通사ず、どんなフェーズでも即座にリセット
+    if text_lower in ["clear", "reset", "stop", "abort", "終了", "リセット"]:
+        reset_game_state()
+        await message.channel.send("🧹 **ゲームを強制リセットしました。** 新しくゲームを始めるにはセットアップを行ってください。")
+        return
+
     remaining_text = actual_text
     for cmd in ["next", "n", "次"]:
         if text_lower == cmd or text_lower.startswith(cmd + " ") or text_lower.startswith(cmd + "　"):
@@ -370,7 +371,7 @@ async def handle_jinro_command(message, actual_text, author_name):
                 await game["channel"].send("☀ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
             return
         else:
-            await message.channel.send("🌙 現在は夜のフェーズです。DMで夜の行動を終えたら、`!jinro next` と入力して朝へ進めてください。")
+            await message.channel.send("🌙 現在は夜のフェーズです。DMで夜の行動を終えたら、`!jinro next` と入力して朝へ進めてください。（※やり直す場合は `!jinro clear`）")
             return
 
     if game["mode"] == "solo":
