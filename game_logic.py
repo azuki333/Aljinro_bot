@@ -19,7 +19,7 @@ AI_CHARACTERS = [
 ]
 
 ROLE_EMOJIS = {
-    "人狼": "🐺", "市民": "👤", "占い師": "🔮", "怪盗": "🕵️️", 
+    "人狼": "🐺", "市民": "👤", "占い師": "🔮", "怪盗": "🕵", 
     "狩人": "🎯", "てるてる": "☀️", "魔女っ子": "🧙‍♀️", "狂人": "🤫"
 }
 
@@ -191,6 +191,7 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
+
 async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
@@ -250,7 +251,10 @@ async def process_night_phase():
 
     for n, p in game["players"].items():
         if p["is_ai"]:
-            if p["role"] == "占い師":
+            if p["role"] == "人狼":
+                partners = [w for w in wws if w != n]
+                p["ai_knows"] = f"仲間の人狼は 『{', '.join(partners) or 'なし'}』 です。"
+            elif p["role"] == "占い師":
                 t = random.choice([k for k in game["players"] if k != n])
                 p["ai_knows"] = f"{t} は『{game['players'][t]['role']}』でした。"
             elif p["role"] == "怪盗":
@@ -276,7 +280,6 @@ async def process_night_phase():
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
     else:
         await game["channel"].send("☀️ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
-
 async def generate_ai_discussion(user_input=""):
     if game["phase"] != "discussion": 
         return
@@ -293,6 +296,17 @@ async def generate_ai_discussion(user_input=""):
         speaker_data = game["players"][speaker_name]
         ai_info = f"- {speaker_name}: 設定({speaker_data['desc']}), 役職({speaker_data['role']}), 夜行動({speaker_data.get('ai_knows','')})"
         
+        role_strategy_guide = ""
+        if speaker_data["role"] == "人狼":
+            role_strategy_guide = (
+                "\n【🐺 人狼陣営としてのチーム戦術指示】\n"
+                "- あなたには仲間の人狼がいます（夜行動の「仲間の人狼」を確認してください）。\n"
+                "- 勝利のために、状況に応じて以下の戦術を使い分けてください：\n"
+                "  1. **庇い合い**: 相方が他のプレイヤーから疑われてピンチのときは、不自然にならない程度に擁護してヘイトを逸らしてください。\n"
+                "  2. **あえてのライン切り**: 全員が仲間を庇いすぎると一網打尽になるため、時にはあえて「私も〇〇さんはちょっと怪しいと思う」と軽く疑うふりをして、自分のシロアピール（市民フリ）を安全に確保する戦術も使ってください。\n"
+                "- ただし、あからさまな自爆や不自然すぎる攻撃・擁護は人間プレイヤーに怪しまれるので注意してください。\n"
+            )
+
         if game["turn_count"] <= 2:
             phase_guide = (
                 "【現在の議論の段階：序盤】\n"
@@ -310,6 +324,7 @@ async def generate_ai_discussion(user_input=""):
             f"ワンナイト人狼の議論タイム（全5ターンのうち、現在は【ターン {game['turn_count']} / 5】）。\n"
             f"あなたは『{speaker_name}』です。\n"
             f"{ai_info}\n"
+            f"{role_strategy_guide}\n"
             f"{phase_guide}\n\n"
             f"【ルール・方針】\n"
             f"- あなた自身の役職、夜の行動結果、または他のプレイヤーのこれまでの発言に対する意見を、現実のチャットのような適度な長さ（3〜5文程度）で自然に発言してください。\n"
