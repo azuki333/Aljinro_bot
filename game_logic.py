@@ -19,7 +19,7 @@ AI_CHARACTERS = [
 
 ROLE_EMOJIS = {
     "人狼": "🐺", "市民": "👤", "占い師": "🔮", "怪盗": "🕵", 
-    "狩人": "🎯", "てるてる": "☀️", "魔女っ子": "🧙‍♀️️", "狂人": "🤫"
+    "狩人": "🎯", "てるてる": "☀️", "魔女っ子": "🧙‍♀", "狂人": "🤫"
 }
 
 game = {
@@ -185,7 +185,7 @@ class RoleCountSelectView(discord.ui.View):
     @discord.ui.button(label="🚀 ゲーム開始！", style=discord.ButtonStyle.blurple, row=4)
     async def confirm(self, i: discord.Interaction, b: discord.ui.Button):
         if sum(self.roles.values()) != 7:
-            await i.response.send_message("⚠️️ 合計7枚にしてください。", ephemeral=True); return
+            await i.response.send_message("⚠ 合計7枚にしてください。", ephemeral=True); return
         await i.response.send_message("✨ セットアップ中...", ephemeral=True)
         game["selected_roles"] = dict(self.roles)
         self.stop()
@@ -224,7 +224,7 @@ async def setup_game(channel, mode, human_users=None):
     if mode == "watch":
         await channel.send(f"🍿 **観戦モード開始！** `!jinro next` で議論を1ターン進めてください。\n\n{member_list_text}")
     else:
-        await channel.send(f"🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。\n\n{member_list_text}")
+        await channel.send(f"🌌 **ゲーム開始！** 夜の時間です。DMを確認して行動してください（完了したらサーバーで `!jinro next` または `!done` を入力してください）。\n\n{member_list_text}")
         
     await process_night_phase()
 
@@ -276,16 +276,9 @@ async def process_night_phase():
                 game["witch_targets"][n] = t
                 p["ai_knows"] = f"{t} の役職は『{game['players'][t]['role']}』でした。"
             else:
-                p["ai_knows"] = "平穏な夜でした。"
+                p["ai_knows"] = "平穏な夜の行動でした。"
 
-    game["phase"] = "discussion"
-    if game["mode"] == "watch":
-        await game["channel"].send("☀ **朝になりました！ `!jinro next` で議論を1ターン進めてください。**")
-    elif game["mode"] == "multi":
-        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` / 投票はDMで `!vote プレイヤー名` または `!vote 平和`)**")
-        game["discussion_task"] = asyncio.create_task(start_5min_timer())
-    else:
-        await game["channel"].send("☀ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
+    # 夜フェーズを維持し、人間が行動を入力できるように待機する
 async def generate_ai_discussion(user_input=""):
     if game["phase"] != "discussion": 
         return
@@ -364,6 +357,21 @@ async def handle_jinro_command(message, actual_text, author_name):
         if text_lower == cmd or text_lower.startswith(cmd + " ") or text_lower.startswith(cmd + "　"):
             remaining_text = actual_text[len(cmd):].strip()
             break
+
+    if game["phase"] == "night":
+        if text_lower in ["next", "n", "次", "done"]:
+            game["phase"] = "discussion"
+            if game["mode"] == "watch":
+                await game["channel"].send("☀ **朝になりました！ `!jinro next` で議論を1ターン進めてください。**")
+            elif game["mode"] == "multi":
+                await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` / 投票はDMで `!vote プレイヤー名` または `!vote 平和`)**")
+                game["discussion_task"] = asyncio.create_task(start_5min_timer())
+            else:
+                await game["channel"].send("☀ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
+            return
+        else:
+            await message.channel.send("🌙 現在は夜のフェーズです。DMで夜の行動を終えたら、`!jinro next` と入力して朝へ進めてください。")
+            return
 
     if game["mode"] == "solo":
         await generate_ai_discussion(user_input=f"{author_name}: {remaining_text}" if remaining_text else "")
