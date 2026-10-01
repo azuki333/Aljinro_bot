@@ -228,7 +228,6 @@ async def setup_game(channel, mode, human_users=None):
         await channel.send(f"🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。\n\n{member_list_text}")
         
     await process_night_phase()
-
 async def process_night_phase():
     wws = [n for n, p in game["players"].items() if p["role"] == "人狼"]
     for n, p in game["players"].items():
@@ -280,6 +279,7 @@ async def process_night_phase():
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
     else:
         await game["channel"].send("☀️ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
+
 async def generate_ai_discussion(user_input=""):
     if game["phase"] != "discussion": 
         return
@@ -294,23 +294,43 @@ async def generate_ai_discussion(user_input=""):
 
     for speaker_name in ai_names:
         speaker_data = game["players"][speaker_name]
-        ai_info = f"- {speaker_name}: 設定({speaker_data['desc']}), 役職({speaker_data['role']}), 夜行動({speaker_data.get('ai_knows','')})"
+        current_role = speaker_data["role"]
         
+        # 役職ごとの立ち回り・戦術指示
         role_strategy_guide = ""
-        if speaker_data["role"] == "人狼":
+        if current_role == "人狼":
             role_strategy_guide = (
-                "\n【🐺 人狼陣営としてのチーム戦術指示】\n"
-                "- あなたには仲間の人狼がいます（夜行動の「仲間の人狼」を確認してください）。\n"
-                "- 勝利のために、状況に応じて以下の戦術を使い分けてください：\n"
-                "  1. **庇い合い**: 相方が他のプレイヤーから疑われてピンチのときは、不自然にならない程度に擁護してヘイトを逸らしてください。\n"
-                "  2. **あえてのライン切り**: 全員が仲間を庇いすぎると一網打尽になるため、時にはあえて「私も〇〇さんはちょっと怪しいと思う」と軽く疑うふりをして、自分のシロアピール（市民フリ）を安全に確保する戦術も使ってください。\n"
-                "- ただし、あからさまな自爆や不自然すぎる攻撃・擁護は人間プレイヤーに怪しまれるので注意してください。\n"
+                f"\n【🐺 人狼陣営としての戦術指示】\n"
+                f"- あなたの夜の仲間情報: {speaker_data.get('ai_knows', '')}\n"
+                f"- **【超重要】自分が人狼であることを自分から絶対に口に出してバラさないでください。**\n"
+                f"- 市民になりすますか、あえて別の役職（占い師など）を騙って（COして）場をかく乱しても構いません。\n"
+                f"- 相方が疑われているときは擁護したり、あえて別の場所へヘイトを向けるなどして生き残りを図ってください。\n"
+            )
+        elif current_role == "狂人":
+            role_strategy_guide = (
+                f"\n【🤫 狂人陣営としての戦術指示】\n"
+                f"- あなたの夜の行動・知っている情報: {speaker_data.get('ai_knows', '')}\n"
+                f"- **自分が狂人であることを自分から絶対に口に出してバラさないでください。**\n"
+                f"- 人狼陣営を勝たせるため、市民のフリをするか、占い師などを騙って村を大いに混乱させてください。\n"
+            )
+        elif current_role == "てるてる":
+            role_strategy_guide = (
+                f"\n【☀️ てるてる坊主としての戦術指示】\n"
+                f"- 自分がてるてるであることは隠しつつ、あえて怪しい言動や矛盾した発言をして、みんなから疑われて処刑されるように立ち回ってください。\n"
+            )
+        else:
+            # 占い師、怪盗、狩人、魔女っ子、市民などの村人陣営
+            role_strategy_guide = (
+                f"\n【👤 村人陣営としての戦術指示】\n"
+                f"- あなたの夜の行動・知っている情報: {speaker_data.get('ai_knows','')}\n"
+                f"- **あなたは村人側の人間です。自分の役職や夜の行動結果をしっかり主張（カミングアウト）して、村の勝利のために推理・発言してください。**\n"
+                f"- もし自分と同じ役職を名乗る怪しい人物がいたら、積極的に対抗して追及してください。\n"
             )
 
         if game["turn_count"] <= 2:
             phase_guide = (
                 "【現在の議論の段階：序盤】\n"
-                "自分の役職や夜の行動結果を簡潔に主張してください。\n"
+                "自分の夜の行動結果や状況を簡潔に主張してください。\n"
                 "※最重要※ もし自分や他のメンバーと同じ役職を名乗る人物（人間や他のAI）がすでにいる場合、"
                 "または発言に少しでも食い違いがある場合は、**序盤であっても見逃さず、即座に「対抗だね？」「おかしくない？」と激しくツッコミを入れて疑ってください。**"
             )
@@ -322,13 +342,12 @@ async def generate_ai_discussion(user_input=""):
 
         prompt = (
             f"ワンナイト人狼の議論タイム（全5ターンのうち、現在は【ターン {game['turn_count']} / 5】）。\n"
-            f"あなたは『{speaker_name}』です。\n"
-            f"{ai_info}\n"
+            f"あなたは『{speaker_name}』です（キャラクター設定: {speaker_data['desc']}）。\n"
             f"{role_strategy_guide}\n"
             f"{phase_guide}\n\n"
             f"【ルール・方針】\n"
-            f"- あなた自身の役職、夜の行動結果、または他のプレイヤーのこれまでの発言に対する意見を、現実のチャットのような適度な長さ（3〜5文程度）で自然に発言してください。\n"
-            f"- これまでのログに他者の占い結果や役職交換などの情報があれば、それを踏まえた推理や疑問点を具体的に述べてください。\n"
+            f"- 自分の本当の正体や役職名をそのままチャットで告白するのは絶対に禁止です。\n"
+            f"- 他のプレイヤーのこれまでの発言に対する意見を、現実のチャットのような適度な長さ（3〜5文程度）で自然に発言してください。\n"
             f"- 強い言葉（処刑など）は避け、柔らかい表現を使ってください。\n"
             f"- 直前の他のAIや人間の発言を受けて、それに対するリアクションを含めると自然です。\n\n"
             f"【これまでの議論ログ】\n" + "\n".join(game["history"][-12:]) + f"\n\n"
@@ -365,10 +384,8 @@ async def handle_jinro_command(message, actual_text, author_name):
         ai_name, target_ai = find_mentioned_ai(actual_text)
         if ai_name and target_ai:
             prompt = (
-                f"ワンナイト人狼の議論中。あなたは『{ai_name}』です。\n"
-                f"性格・設定: {target_ai['desc']}\n"
-                f"あなたの本来の役職: {target_ai['role']}\n"
-                f"【方針】ゲーム内の駆け引きとして、人狼陣営やてるてるなら騙りやブラフを、村人陣営なら本当の結果を伝えてください。強い言葉は避け、柔らかい表現を使ってください。\n\n"
+                f"ワンナイト人狼の議論中。あなたは『{ai_name}』です（キャラクター設定: {target_ai['desc']}）。\n"
+                f"【方針】ゲーム内の駆け引きとして、人狼陣営やてるてるなら市民のフリや別の役職の騙りを、村人陣営なら本当の結果を伝えてください。自分の本当の役職名をそのままバラすのは禁止です。強い言葉は避け、柔らかい表現を使ってください。\n\n"
                 f"プレイヤー({author_name})からの発言: 「{actual_text}」\n"
                 f"この発言に対して、あなたのキャラクターになりきって短く（1〜3文程度で）返答してください。"
             )
@@ -391,10 +408,8 @@ async def start_voting_phase():
     
     for n, p in game["players"].items():
         if not p["is_ai"]: continue
-        ai_info = f"設定({p['desc']}), 役職({p['role']}), 夜行動({p.get('ai_knows','')})"
         prompt = (
             f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です。\n"
-            f"{ai_info}\n"
             f"【これまでの議論ログ】\n" + "\n".join(game["history"][-15:]) + f"\n\n"
             f"これまでの議論や状況を踏まえて、誰を「村から送り出す（追放する）」ために投票するか、あるいは誰も送り出さない「平和」にするかを決めてください。\n"
             f"【回答ルール】\n"
@@ -474,4 +489,3 @@ async def Tally_and_finish():
     if game.get("channel"):
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
     reset_game_state()
-        
