@@ -182,8 +182,8 @@ async def jinro(ctx, mode: str = None, *args):
             "・`!jinro test [文章]` : LLM接続テスト"
         )
 
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 if TOKEN:
     bot.run(TOKEN)
 else:
-    print("DISCORD_BOT_TOKEN が設定されていません。")
+    print("⚠️ DISCORD_BOT_TOKEN が設定されていません。環境変数またはコードにトークンを設定してください。")
