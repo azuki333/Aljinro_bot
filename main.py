@@ -80,7 +80,7 @@ async def on_message(message):
 
             elif content_lower.startswith("!steal "):
                 if p["role"] != "怪盗":
-                    await message.channel.send("⚠️️ あなたは怪盗ではありません。")
+                    await message.channel.send("⚠️ あなたは怪盗ではありません。")
                     return
                 target = content.replace("!steal", "").strip()
                 if target in game["players"]:
@@ -182,8 +182,8 @@ async def jinro(ctx, mode: str = None, *args):
             "・`!jinro test [文章]` : LLM接続テスト"
         )
 
-TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if TOKEN:
     bot.run(TOKEN)
 else:
-    print("⚠️ DISCORD_BOT_TOKEN が設定されていません。環境変数またはコードにトークンを設定してください。")
+    print("DISCORD_BOT_TOKEN が設定されていません。")
