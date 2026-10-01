@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import discord
 from discord.ext import commands
 import os
@@ -61,7 +64,7 @@ async def on_message(message):
             content_lower = content.lower()
             if content_lower.startswith("!fortune "):
                 if p["role"] != "占い師":
-                    await message.channel.send("⚠️ あなたは占い師ではありません。")
+                    await message.channel.send("⚠️️ あなたは占い師ではありません。")
                     return
                 target = content.replace("!fortune", "").strip()
                 if target == "墓場":
@@ -187,4 +190,3 @@ if TOKEN:
     bot.run(TOKEN)
 else:
     print("⚠️ DISCORD_BOT_TOKEN が設定されていません。環境変数またはコードにトークンを設定してください。")
-    
