@@ -33,7 +33,7 @@ async def on_message(message):
         content = message.content.strip()
         if content.startswith("!vote"):
             if not game["is_running"] or game["phase"] != "voting":
-                await message.channel.send("⚠️ 現在は投票フェーズではありません。")
+                await message.channel.send("⚠ 現在は投票フェーズではありません。")
                 return
             target = content.replace("!vote", "").strip()
             voter_name = next((n for n, p in game["players"].items() if not p["is_ai"] and p["user_obj"] and p["user_obj"].id == message.author.id), None)
@@ -41,7 +41,7 @@ async def on_message(message):
                 await message.channel.send("⚠️ あなたはこのゲームに参加していません。")
                 return
             if target != "平和" and target not in game["players"]:
-                await message.channel.send(f"⚠️ プレイヤー「{target}」は存在しません。")
+                await message.channel.send(f"⚠️️ プレイヤー「{target}」は存在しません。")
                 return
             game["votes"][voter_name] = target
             await message.channel.send(f"🗳️ **{target}** に投票を受け付けました。")
@@ -58,13 +58,13 @@ async def on_message(message):
             player_entry = next(((n, p) for n, p in game["players"].items() if not p["is_ai"] and p["user_obj"] and p["user_obj"].id == message.author.id), (None, None))
             n, p = player_entry
             if not n:
-                await message.channel.send("⚠️ あなたはこのゲームに参加していません。")
+                await message.channel.send("⚠️️ あなたはこのゲームに参加していません。")
                 return
             
             content_lower = content.lower()
             if content_lower.startswith("!fortune "):
                 if p["role"] != "占い師":
-                    await message.channel.send("⚠️️ あなたは占い師ではありません。")
+                    await message.channel.send("⚠ あなたは占い師ではありません。")
                     return
                 target = content.replace("!fortune", "").strip()
                 if target == "墓場":
@@ -83,7 +83,7 @@ async def on_message(message):
 
             elif content_lower.startswith("!steal "):
                 if p["role"] != "怪盗":
-                    await message.channel.send("⚠️ あなたは怪盗ではありません。")
+                    await message.channel.send("⚠ あなたは怪盗ではありません。")
                     return
                 target = content.replace("!steal", "").strip()
                 if target in game["players"]:
@@ -101,19 +101,19 @@ async def on_message(message):
 
             elif content_lower.startswith("!hunt "):
                 if p["role"] != "狩人":
-                    await message.channel.send("⚠️ あなたは狩人ではありません。")
+                    await message.channel.send("⚠ あなたは狩人ではありません。")
                     return
                 target = content.replace("!hunt", "").strip()
                 if target in game["players"]:
                     game["hunter_targets"][n] = target
                     await message.channel.send(f"🎯 {target} を道連れ対象に指定しました。")
                 else:
-                    await message.channel.send(f"⚠️ プレイヤー「{target}」が見つかりません。")
+                    await message.channel.send(f"⚠️️ プレイヤー「{target}」が見つかりません。")
                 return
 
             elif content_lower.startswith("!witch "):
                 if p["role"] != "魔女っ子":
-                    await message.channel.send("⚠️ あなたは魔女っ子ではありません。")
+                    await message.channel.send("⚠ あなたは魔女っ子ではありません。")
                     return
                 target = content.replace("!witch", "").strip()
                 if target in game["players"]:
@@ -170,7 +170,7 @@ async def jinro(ctx, mode: str = None, *args):
             return
         human_users = [ctx.author] + [m for m in mentions if m != ctx.author]
         if len(human_users) > 5:
-            await ctx.send("⚠️ 人間プレイヤーは最大5人までです。")
+            await ctx.send("⚠ 人間プレイヤーは最大5人までです。")
             return
         view = RoleCountSelectView("multi", human_users)
         await ctx.send(embed=view.create_embed(), view=view)
@@ -184,6 +184,19 @@ async def jinro(ctx, mode: str = None, *args):
             "・`!jinro stop` : ゲーム強制終了\n"
             "・`!jinro test [文章]` : LLM接続テスト"
         )
+
+@bot.command(name="chat")
+async def chat(ctx, *, prompt: str = None):
+    if not prompt:
+        await ctx.send("⚠️ 質問内容を入力してください（例: `!chat こんにちは`）")
+        return
+    async with ctx.channel.typing():
+        res = await call_llm(prompt)
+        if res:
+            for i in range(0, len(res), 1900):
+                await ctx.send(res[i:i+1900])
+        else:
+            await ctx.send("❌ 応答を取得できませんでした。")
 
 TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 if TOKEN:
