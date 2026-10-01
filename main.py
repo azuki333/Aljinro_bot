@@ -80,7 +80,7 @@ async def on_message(message):
 
             elif content_lower.startswith("!steal "):
                 if p["role"] != "怪盗":
-                    await message.channel.send("⚠️ あなたは怪盗ではありません。")
+                    await message.channel.send("⚠️️ あなたは怪盗ではありません。")
                     return
                 target = content.replace("!steal", "").strip()
                 if target in game["players"]:
@@ -122,23 +122,13 @@ async def on_message(message):
                     await message.channel.send(f"⚠️ プレイヤー「{target}」が見つかりません。")
                 return
 
-    # サーバー内チャンネルでの発言処理（デバッグログ付き）
-    if game["is_running"]:
-        print(f"[デバッグ] ゲーム中。メッセージ受信: '{message.content}' (チャンネルID: {message.channel.id})")
-        if game["channel"]:
-            print(f"[デバッグ] 保存されたゲームチャンネルID: {game['channel'].id}")
-        else:
-            print("[デバッグ] ❌ game['channel'] が None です！")
-            
-        if game["channel"] and message.channel.id == game["channel"].id:
-            actual_text = message.content.strip()
-            if actual_text.startswith("!jinro"):
-                actual_text = actual_text.replace("!jinro", "", 1).strip()
-            print(f"[デバッグ] コマンド処理へ渡すテキスト: '{actual_text}'")
-            if actual_text:
-                await handle_jinro_command(message, actual_text, message.author.display_name)
-        else:
-            print("[デバッグ] ❌ チャンネルIDが一致しないためスルーされました")
+    # サーバー内チャンネルでの発言処理
+    if game["is_running"] and game["channel"] and message.channel.id == game["channel"].id:
+        actual_text = message.content.strip()
+        if actual_text.startswith("!jinro"):
+            actual_text = actual_text.replace("!jinro", "").strip()
+        if actual_text:
+            await handle_jinro_command(message, actual_text, message.author.display_name)
             
     await bot.process_commands(message)
 
@@ -177,7 +167,7 @@ async def jinro(ctx, mode: str = None, *args):
             return
         human_users = [ctx.author] + [m for m in mentions if m != ctx.author]
         if len(human_users) > 5:
-            await ctx.send("⚠️️ 人間プレイヤーは最大5人までです。")
+            await ctx.send("⚠️ 人間プレイヤーは最大5人までです。")
             return
         view = RoleCountSelectView("multi", human_users)
         await ctx.send(embed=view.create_embed(), view=view)
