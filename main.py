@@ -187,3 +187,4 @@ if TOKEN:
     bot.run(TOKEN)
 else:
     print("⚠️ DISCORD_BOT_TOKEN が設定されていません。環境変数またはコードにトークンを設定してください。")
+    
