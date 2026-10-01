@@ -229,6 +229,8 @@ async def setup_game(channel, mode, human_users=None):
     await process_night_phase()
 async def process_night_phase():
     wws = [n for n, p in game["players"].items() if p["role"] == "人狼"]
+    
+    # 1. 人間のプレイヤーへのDM通知
     for n, p in game["players"].items():
         if not p["is_ai"] and p["user_obj"]:
             msg = f"🌙 **役職: 『{p['role']}』**\n"
@@ -247,6 +249,7 @@ async def process_night_phase():
             try: await p["user_obj"].send(msg)
             except: pass
 
+    # 2. AIの夜の行動（役職の入れ替わりを正確に1対1で同期処理）
     for n, p in game["players"].items():
         if p["is_ai"]:
             if p["role"] == "人狼":
@@ -257,7 +260,11 @@ async def process_night_phase():
                 p["ai_knows"] = f"{t} は『{game['players'][t]['role']}』でした。"
             elif p["role"] == "怪盗":
                 t = random.choice([k for k in game["players"] if k != n])
-                game["players"][n]["role"], game["players"][t]["role"] = game["players"][t]["role"], game["players"][n]["role"]
+                my_old_role = game["players"][n]["role"]
+                target_role = game["players"][t]["role"]
+                
+                game["players"][n]["role"] = target_role
+                game["players"][t]["role"] = my_old_role
                 p["ai_knows"] = f"{t} と役職を交換しました。"
             elif p["role"] == "狩人":
                 t = random.choice([k for k in game["players"] if k != n])
@@ -277,7 +284,7 @@ async def process_night_phase():
         await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` / 投票はDMで `!vote プレイヤー名` または `!vote 平和`)**")
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
     else:
-        await game["channel"].send("☀️ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
+        await game["channel"].send("☀ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
 
 async def generate_ai_discussion(user_input=""):
     if game["phase"] != "discussion": 
@@ -300,53 +307,33 @@ async def generate_ai_discussion(user_input=""):
             role_strategy_guide = (
                 f"\n【🐺 人狼陣営としての戦術指示】\n"
                 f"- あなたの夜の仲間情報: {speaker_data.get('ai_knows', '')}\n"
-                f"- **【超重要】自分が人狼であることを自分から絶対に口に出してバラさないでください。**\n"
-                f"- 市民になりすますか、あえて別の役職（占い師など）を騙って（COして）場をかく乱しても構いません。\n"
-                f"- 相方が疑われているときは擁護したり、あえて別の場所へヘイトを向けるなどして生き残りを図ってください。\n"
+                f"- **自分が人狼であることを自分から絶対に口に出してバラさないでください。**\n"
             )
         elif current_role == "狂人":
             role_strategy_guide = (
                 f"\n【🤫 狂人陣営としての戦術指示】\n"
                 f"- あなたの夜の行動・知っている情報: {speaker_data.get('ai_knows', '')}\n"
                 f"- **自分が狂人であることを自分から絶対に口に出してバラさないでください。**\n"
-                f"- 人狼陣営を勝たせるため、市民のフリをするか、占い師などを騙って村を大いに混乱させてください。\n"
             )
         elif current_role == "てるてる":
             role_strategy_guide = (
                 f"\n【☀ てるてる坊主としての戦術指示】\n"
-                f"- 自分がてるてるであることは隠しつつ、あえて怪しい言動や矛盾した発言をして、みんなから疑われて処刑されるように立ち回ってください。\n"
+                f"- 自分がてるてるであることは隠しつつ、あえて怪しい言動や矛盾した発言をして疑われて処刑されるように立ち回ってください。\n"
             )
         else:
             role_strategy_guide = (
                 f"\n【👤 村人陣営としての戦術指示】\n"
                 f"- あなたの夜の行動・知っている情報: {speaker_data.get('ai_knows','')}\n"
-                f"- **あなたは村人側の人間です。自分の役職や夜の行動結果をしっかり主張（カミングアウト）して、村の勝利のために推理・発言してください。**\n"
-                f"- もし自分と同じ役職を名乗る怪しい人物がいたら、積極的に対抗して追及してください。\n"
-            )
-
-        if game["turn_count"] <= 2:
-            phase_guide = (
-                "【現在の議論の段階：序盤】\n"
-                "自分の夜の行動結果や状況を簡潔に主張してください。\n"
-                "※最重要※ もし自分や他のメンバーと同じ役職を名乗る人物（人間や他のAI）がすでにいる場合、"
-                "または発言に少しでも食い違いがある場合は、**序盤であっても見逃さず、即座に「対抗だね？」「おかしくない？」と激しくツッコミを入れて疑ってください。**"
-            )
-        else:
-            phase_guide = (
-                "【現在の議論の段階：中盤〜終盤】\n"
-                "お互いの発言の矛盾点や、誰を村から送り出すべきかについて、他の人に意見を問いかけたり主張してください。"
+                f"- **あなたは村人側の人間です。自分の役職や夜の行動結果をしっかり主張して勝利のために発言してください。**\n"
             )
 
         prompt = (
             f"ワンナイト人狼の議論タイム（全5ターンのうち、現在は【ターン {game['turn_count']} / 5】）。\n"
             f"あなたは『{speaker_name}』です（キャラクター設定: {speaker_data['desc']}）。\n"
-            f"{role_strategy_guide}\n"
-            f"{phase_guide}\n\n"
+            f"{role_strategy_guide}\n\n"
             f"【ルール・方針】\n"
-            f"- 自分の本当の正体や役職名をそのままチャットで告白するのは絶対に禁止です。\n"
-            f"- 他のプレイヤーのこれまでの発言に対する意見を、現実のチャットのような適度な長さ（3〜5文程度）で自然に発言してください。\n"
-            f"- 強い言葉（処刑など）は避け、柔らかい表現を使ってください。\n"
-            f"- 直前の他のAIや人間の発言を受けて、それに対するリアクションを含めると自然です。\n\n"
+            f"- 自分の本当の正体や役職名をそのままチャットで告白するのは禁止です。\n"
+            f"- 他のプレイヤーのこれまでの発言に対する意見を、現実のチャットのような適度な長さで発言してください。\n\n"
             f"【これまでの議論ログ】\n" + "\n".join(game["history"][-12:]) + f"\n\n"
             f"【最新の状況】\n"
             f"{user_input if speaker_name == ai_names[0] else '（他のメンバーに続いてあなたの番です）'}"
@@ -382,9 +369,8 @@ async def handle_jinro_command(message, actual_text, author_name):
         if ai_name and target_ai:
             prompt = (
                 f"ワンナイト人狼の議論中。あなたは『{ai_name}』です（キャラクター設定: {target_ai['desc']}）。\n"
-                f"【方針】ゲーム内の駆け引きとして、人狼陣営やてるてるなら市民のフリや別の役職の騙りを、村人陣営なら本当の結果を伝えてください。自分の本当の役職名をそのままバラすのは禁止です。強い言葉は避け、柔らかい表現を使ってください。\n\n"
                 f"プレイヤー({author_name})からの発言: 「{actual_text}」\n"
-                f"この発言に対して、あなたのキャラクターになりきって短く（1〜3文程度で）返答してください。"
+                f"この発言に対して、あなたのキャラクターになりきって短く返答してください。"
             )
             try:
                 async with message.channel.typing():
@@ -407,10 +393,8 @@ async def start_voting_phase():
         if not p["is_ai"]: continue
         prompt = (
             f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です。\n"
-            f"【これまでの議論ログ】\n" + "\n".join(game["history"][-15:]) + f"\n\n"
-            f"これまでの議論や状況を踏まえて、誰を「村から送り出す（処刑する）」ために投票するか、あるいは誰も送り出さない「平和」にするかを決めてください。\n"
-            f"【回答ルール】\n"
-            f"- 投票したいプレイヤーの名前（例: アル）、または「平和」のいずれか**一単語のみ**を答えてください。余計な解説や文章は一切含めないでください。"
+            f"これまでの議論や状況を踏まえて、誰を処刑するために投票するか、あるいは「平和」にするかを決めてください。\n"
+            f"【回答ルール】投票したいプレイヤーの名前、または「平和」のいずれか**一単語のみ**を答えてください。"
         )
         try:
             reply = await call_llm(prompt)
@@ -429,7 +413,7 @@ async def start_voting_phase():
         await asyncio.sleep(1)
         await Tally_and_finish()
     else:
-        await game["channel"].send("🗳 AIの投票が完了しました！人間プレイヤーはDMで `!vote プレイヤー名` または `!vote 平和` と送信して投票を完了させてください。")
+        await game["channel"].send("🗳 AIの投票が完了しました！人間プレイヤーは `!vote プレイヤー名` または `!vote 平和` で投票してください。")
 
 async def Tally_and_finish():
     game["phase"] = "ended"
@@ -453,32 +437,18 @@ async def Tally_and_finish():
     if game.get("channel"):
         await game["channel"].send(res)
 
-    winners = []
     win_reason = ""
-
     if len(lynched) == 1 and game["players"][lynched[0]]["role"] == "てるてる":
-        winners = [n for n, p in game["players"].items() if p["role"] == "てるてる"]
-        win_reason = f"☀️ てるてる({lynched[0]})が処刑されたため、**てるてる陣営の単独勝利**です！"
+        win_reason = f"☀️ てるてる({lynched[0]})が処刑されたため、**てるてる陣営の勝利**です！"
     elif peace_count > (len(game["votes"]) / 2):
         wws_alive = [n for n, p in game["players"].items() if p["role"] == "人狼"]
-        if not wws_alive:
-            winners = [n for n, p in game["players"].items() if p["role"] != "人狼"]
-            win_reason = "🕊️ 平和が選ばれ、場に人狼はいなかったため、**村人陣営の勝利**です！"
-        else:
-            winners = wws_alive
-            win_reason = "🐺 平和が選ばれましたが、場に人狼が生き残っていたため、**人狼陣営の勝利**です！"
+        win_reason = "🕊️ 平和が選ばれ、人狼がいなかったため**村人陣営の勝利**です！" if not wws_alive else "🐺 平和が選ばれましたが人狼が生き残っていたため**人狼陣営の勝利**です！"
     elif len(lynched) == 1:
         target = lynched[0]
         role = game["players"][target]["role"]
-        if role == "人狼":
-            winners = [n for n, p in game["players"].items() if p["role"] != "人狼"]
-            win_reason = f"🎉 人狼である **{target}** が処刑されたため、**村人陣営の勝利**です！"
-        else:
-            winners = [n for n, p in game["players"].items() if p["role"] == "人狼"]
-            win_reason = f"😢 処刑された **{target}** は人狼ではありませんでした。**人狼陣営の勝利**です！"
+        win_reason = f"🎉 人狼である **{target}** が処刑されたため、**村人陣営の勝利**です！" if role == "人狼" else f"😢 処刑された **{target}** は人狼ではありませんでした。**人狼陣営の勝利**です！"
     else:
-        winners = [n for n, p in game["players"].items() if p["role"] == "人狼"]
-        win_reason = "⚖️ 投票が同票だったため誰も処刑されず、人狼陣営の勝利です！"
+        win_reason = "⚖️ 同票のため誰も処刑されず、人狼陣営の勝利です！"
 
     roles_text = "🎴 **【役職公開】**\n" + "\n".join([f"・{n}: 当初({p['original_role']}) ➔ 最終({p['role']})" for n, p in game["players"].items()])
     center_text = f"・中央の余りカード: {', '.join(game['center_cards'])}"
@@ -486,4 +456,3 @@ async def Tally_and_finish():
     if game.get("channel"):
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
     reset_game_state()
-    
