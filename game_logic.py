@@ -182,6 +182,7 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
+
 async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
@@ -267,8 +268,6 @@ async def process_night_phase():
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
     else:
         await game["channel"].send("☀️ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
-
-
 async def generate_ai_discussion(user_input="", is_watch=False):
     if game["phase"] != "discussion": 
         return
@@ -285,11 +284,19 @@ async def generate_ai_discussion(user_input="", is_watch=False):
         speaker_data = game["players"][speaker_name]
         ai_info = f"- {speaker_name}: 設定({speaker_data['desc']}), 役職({speaker_data['role']}), 夜行動({speaker_data.get('ai_knows','')})"
         
-        phase_guide = "【現在の議論の段階】"
+        # 🔻 【序盤であっても対抗や矛盾を見つけたら即座にツッコミを入れるよう指示】
         if game["turn_count"] <= 2:
-            phase_guide += "自分の役職や夜の行動結果を短く主張してください。"
+            phase_guide = (
+                "【現在の議論の段階：序盤】\n"
+                "自分の役職や夜の行動結果を簡潔に主張してください。\n"
+                "※最重要※ もし自分や他のメンバーと同じ役職を名乗る人物（人間や他のAI）がすでにいる場合、"
+                "または発言に少しでも食い違いがある場合は、**序盤であっても見逃さず、即座に「対抗だね？」「おかしくない？」と激しくツッコミを入れて疑ってください。**"
+            )
         else:
-            phase_guide += "お互いの発言の矛盾点や、誰を村から送り出すべきかについて、他の人に意見を問いかけたり主張してください。"
+            phase_guide = (
+                "【現在の議論の段階：中盤〜終盤】\n"
+                "お互いの発言の矛盾点や、誰を村から送り出すべきかについて、他の人に意見を問いかけたり主張してください。"
+            )
 
         prompt = (
             f"ワンナイト人狼の議論タイム（全5ターンのうち、現在は【ターン {game['turn_count']} / 5】）。\n"
@@ -404,53 +411,4 @@ async def Tally_and_finish():
         else: counts[t] = counts.get(t, 0) + 1
 
     res = "⚖️ **集計結果**\n"
-    for v, t in game["votes"].items():
-        res += f"・{v} ➡️ {t}\n"
-
-    exec_p, drag_p = None, None
-    total_votes = len(game["votes"])
-
-    if peace_count == total_votes and total_votes > 0:
-        res += "\n🕊️ **全員が平和を選択しました（平和村）！**\n"
-        surviving_werewolf_exists = any(p["role"] == "人狼" for p in game["players"].values())
-        res += "\n🎉 **勝敗発表**\n"
-        if surviving_werewolf_exists: res += "🐺 **人狼陣営の勝利！**（生存者に人狼が潜んでいました）\n"
-        else: res += "🏆 **市民陣営の勝利！**（人狼は全員墓地にいました）\n"
-    else:
-        if len(counts) == 0:
-            exec_p = None
-            res += "\n🩸 有効な投票がなく、誰も村から送り出されませんでした。\n"
-        else:
-            max_v = max(counts.values()) if counts else 0
-            executed_candidates = [n for n, c in counts.items() if c == max_v]
-            exec_p = executed_candidates[0] if len(executed_candidates) == 1 else random.choice(executed_candidates)
-            if len(executed_candidates) > 1:
-                res += f"\n🩸 最高得票（{max_v}票）で並んだ [{', '.join(executed_candidates)}] の中から、抽選の結果 **{exec_p}** が村から送り出されました！\n"
-            else:
-                res += f"\n🩸 最多得票: **{exec_p}** が村から送り出されました！\n"
-
-            if exec_p and game["players"][exec_p]["role"] == "狩人" and exec_p in game["hunter_targets"]:
-                drag_p = game["hunter_targets"][exec_p]
-                res += f"🎯 **狩人の道連れ発動！** ➡️ **{drag_p}** を巻き添えにしました！\n"
-
-        res += "\n🎉 **勝敗発表**\n"
-        if not exec_p: res += "🐺 **人狼陣営の勝利！**（追放者なし）\n"
-        elif (exec_p and game["players"][exec_p]["role"] == "てるてる") or (drag_p and game["players"][drag_p]["role"] == "てるてる"):
-            res += "☀️ **てるてる坊主の単独勝利！**\n"
-        else:
-            w_win, w_lose = False, False
-            if exec_p and game["players"][exec_p]["role"] == "狩人" and drag_p:
-                if game["players"][drag_p]["role"] == "人狼": w_win = True
-                else: w_lose = True
-
-            if w_win: res += "🏆 **市民陣営の勝利！**（狩人が人狼を道連れ）\n"
-            elif w_lose: res += "🐺 **人狼陣営の勝利！**（狩人が市民を道連れ）\n"
-            elif exec_p and game["players"][exec_p]["role"] == "人狼": res += "🏆 **市民陣営の勝利！**\n"
-            else: res += "🐺 **人狼陣営の勝利！**\n"
-
-    res += "\n📜 **最終正解**\n"
-    for n, p in game["players"].items():
-        res += f"・{n}: 『{p['role']}』\n"
-    res += f"・墓場: 『{game['center_cards'][0]}』, 『{game['center_cards'][1]}』\n"
-    await send_split_message(game["channel"], res)
         
