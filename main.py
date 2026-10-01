@@ -41,7 +41,7 @@ async def on_message(message):
                 await message.channel.send("⚠️ あなたはこのゲームに参加していません。")
                 return
             if target != "平和" and target not in game["players"]:
-                await message.channel.send(f"⚠️️ プレイヤー「{target}」は存在しません。")
+                await message.channel.send(f"⚠ プレイヤー「{target}」は存在しません。")
                 return
             game["votes"][voter_name] = target
             await message.channel.send(f"🗳️ **{target}** に投票を受け付けました。")
@@ -58,7 +58,7 @@ async def on_message(message):
             player_entry = next(((n, p) for n, p in game["players"].items() if not p["is_ai"] and p["user_obj"] and p["user_obj"].id == message.author.id), (None, None))
             n, p = player_entry
             if not n:
-                await message.channel.send("⚠️️ あなたはこのゲームに参加していません。")
+                await message.channel.send("⚠ あなたはこのゲームに参加していません。")
                 return
             
             content_lower = content.lower()
@@ -108,7 +108,7 @@ async def on_message(message):
                     game["hunter_targets"][n] = target
                     await message.channel.send(f"🎯 {target} を道連れ対象に指定しました。")
                 else:
-                    await message.channel.send(f"⚠️️ プレイヤー「{target}」が見つかりません。")
+                    await message.channel.send(f"⚠ プレイヤー「{target}」が見つかりません。")
                 return
 
             elif content_lower.startswith("!witch "):
@@ -138,12 +138,12 @@ async def on_message(message):
 @bot.command()
 async def jinro(ctx, mode: str = None, *args):
     global game
-    if mode == "stop":
+    if mode in ["stop", "clear"]:
         if not game["is_running"]:
             await ctx.send("⚠️ 現在進行中のゲームはありません。")
             return
-        reset_game_state()
         await ctx.send("🛑 ゲームを強制終了しました。")
+        reset_game_state()
         return
 
     if mode == "test":
@@ -165,9 +165,6 @@ async def jinro(ctx, mode: str = None, *args):
         await ctx.send(embed=view.create_embed(), view=view)
     elif mode == "multi":
         mentions = ctx.message.mentions
-        if not mentions:
-            await ctx.send("⚠️ 参加者をメンションしてください（例: `!jinro multi @user1 @user2`）。")
-            return
         human_users = [ctx.author] + [m for m in mentions if m != ctx.author]
         if len(human_users) > 5:
             await ctx.send("⚠ 人間プレイヤーは最大5人までです。")
@@ -179,9 +176,9 @@ async def jinro(ctx, mode: str = None, *args):
             "🐺 **ワンナイト人狼へようこそ！**\n"
             "以下のコマンドで遊べます：\n"
             "・`!jinro solo` : 1人プレイ（あなた＋AI4人）\n"
-            "・`!jinro multi @メンション...` : マルチプレイ（人間最大5人、不足分はAI）\n"
+            "・`!jinro multi [@メンション...]` : マルチプレイ（人間最大5人、不足分はAI）\n"
             "・`!jinro watch` : 観戦モード（AI5人による自動対戦）\n"
-            "・`!jinro stop` : ゲーム強制終了\n"
+            "・`!jinro stop` / `!jinro clear` : ゲーム強制終了\n"
             "・`!jinro test [文章]` : LLM接続テスト"
         )
 
