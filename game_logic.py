@@ -1,4 +1,10 @@
-import discord, urllib.request, urllib.error, json, asyncio, os, random
+import discord
+import urllib.request
+import urllib.error
+import json
+import asyncio
+import os
+import random
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
@@ -13,7 +19,7 @@ AI_CHARACTERS = [
 ]
 
 ROLE_EMOJIS = {
-    "人狼": "🐺", "市民": "👤", "占い師": "🔮", "怪盗": "🕵️", 
+    "人狼": "🐺", "市民": "👤", "占い師": "🔮", "怪盗": "🕵️️", 
     "狩人": "🎯", "てるてる": "☀️", "魔女っ子": "🧙‍♀️", "狂人": "🤫"
 }
 
@@ -21,18 +27,21 @@ game = {
     "is_running": False, "mode": None, "phase": "idle", "channel": None,
     "players": {}, "center_cards": [], "votes": {}, "hunter_targets": {},
     "witch_targets": {}, "turn_count": 0, "discussion_task": None, "history": [],
-    "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0}
+    "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0},
+    "pending_multi_host": None, "pending_multi_users": []
 }
 
 def reset_game_state():
     global game
-    if game["discussion_task"]: game["discussion_task"].cancel()
+    if game.get("discussion_task"): 
+        game["discussion_task"].cancel()
     game.clear()
     game.update({
         "is_running": False, "mode": None, "phase": "idle", "channel": None,
         "players": {}, "center_cards": [], "votes": {}, "hunter_targets": {},
         "witch_targets": {}, "turn_count": 0, "discussion_task": None, "history": [],
-        "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0}
+        "selected_roles": {"人狼": 2, "市民": 3, "占い師": 1, "怪盗": 1, "狩人": 0, "てるてる": 0, "魔女っ子": 0, "狂人": 0},
+        "pending_multi_host": None, "pending_multi_users": []
     })
 
 async def send_split_message(channel, content):
@@ -96,7 +105,7 @@ class RoleCountSelectView(discord.ui.View):
         self.roles = dict(game["selected_roles"])
 
     def create_embed(self):
-        embed = discord.Embed(title="🎴 役職カスタム枚数設定", description="5人プレイ時は合計7枚にしてください。", color=discord.Color.blue())
+        embed = discord.Embed(title="🎴 役職カスタム枚数設定", description="合計7枚にしてください。", color=discord.Color.blue())
         total = sum(self.roles.values())
         for r, c in self.roles.items(): embed.add_field(name=f"{ROLE_EMOJIS.get(r,'')} {r}", value=f"**{c}**枚", inline=True)
         embed.set_footer(text=f"合計枚数: {total}枚 (推奨: 7枚)")
@@ -182,7 +191,6 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
-
 async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
@@ -264,11 +272,12 @@ async def process_night_phase():
     if game["mode"] == "watch":
         await game["channel"].send("☀️ **朝になりました！ `!jinro next` で議論を1ターン進めてください。**")
     elif game["mode"] == "multi":
-        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` / 投票は `!vote プレイヤー名` または `!vote 平和`)**")
+        await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` / 投票はDMで `!vote プレイヤー名` または `!vote 平和`)**")
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
     else:
         await game["channel"].send("☀️ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
-async def generate_ai_discussion(user_input="", is_watch=False):
+
+async def generate_ai_discussion(user_input=""):
     if game["phase"] != "discussion": 
         return
     
@@ -284,7 +293,6 @@ async def generate_ai_discussion(user_input="", is_watch=False):
         speaker_data = game["players"][speaker_name]
         ai_info = f"- {speaker_name}: 設定({speaker_data['desc']}), 役職({speaker_data['role']}), 夜行動({speaker_data.get('ai_knows','')})"
         
-        # 🔻 【序盤であっても対抗や矛盾を見つけたら即座にツッコミを入れるよう指示】
         if game["turn_count"] <= 2:
             phase_guide = (
                 "【現在の議論の段階：序盤】\n"
@@ -329,7 +337,6 @@ async def generate_ai_discussion(user_input="", is_watch=False):
     else:
         await game["channel"].send(f"👇 **【ターン {game['turn_count']} 終了】** 次のターンに進むには `!jinro next` と入力してください。")
 
-
 async def handle_jinro_command(message, actual_text, author_name):
     if game["mode"] == "solo":
         await generate_ai_discussion(user_input=f"{author_name}: {actual_text}")
@@ -362,7 +369,6 @@ async def handle_jinro_command(message, actual_text, author_name):
         else:
             game["history"].append(f"{author_name}: {actual_text}")
             await message.add_reaction("👍")
-
 
 async def start_voting_phase():
     game["phase"] = "voting"
@@ -398,11 +404,11 @@ async def start_voting_phase():
     else:
         await game["channel"].send("🗳 AIの投票が完了しました！人間プレイヤーはDMで `!vote プレイヤー名` または `!vote 平和` と送信して投票を完了させてください。")
 
-
 async def Tally_and_finish():
     game["phase"] = "ended"
     game["is_running"] = False
-    if game["discussion_task"]: game["discussion_task"].cancel()
+    if game.get("discussion_task"): 
+        game["discussion_task"].cancel()
 
     counts = {}
     peace_count = 0
@@ -410,5 +416,47 @@ async def Tally_and_finish():
         if t == "平和": peace_count += 1
         else: counts[t] = counts.get(t, 0) + 1
 
-    res = "⚖️ **集計結果**\n"
+    res = "⚖ **集計結果**\n"
+    max_v = max(counts.values()) if counts else 0
+    lynched = [k for k, c in counts.items() if c == max_v] if max_v > 0 else []
+
+    for v, t in game["votes"].items():
+        res += f"・{v} ➔ {t}\n"
+
+    if game.get("channel"):
+        await game["channel"].send(res)
+
+    winners = []
+    win_reason = ""
+
+    if len(lynched) == 1 and game["players"][lynched[0]]["role"] == "てるてる":
+        winners = [n for n, p in game["players"].items() if p["role"] == "てるてる"]
+        win_reason = f"☀️ てるてる({lynched[0]})が吊られたため、**てるてる陣営の単独勝利**です！"
+    elif peace_count > (len(game["votes"]) / 2):
+        wws_alive = [n for n, p in game["players"].items() if p["role"] == "人狼"]
+        if not wws_alive:
+            winners = [n for n, p in game["players"].items() if p["role"] != "人狼"]
+            win_reason = "🕊️ 平和が選ばれ、場に人狼はいなかったため、**村人陣営の勝利**です！"
+        else:
+            winners = wws_alive
+            win_reason = "🐺 平和が選ばれましたが、場に人狼が生き残っていたため、**人狼陣営の勝利**です！"
+    elif len(lynched) == 1:
+        target = lynched[0]
+        role = game["players"][target]["role"]
+        if role == "人狼":
+            winners = [n for n, p in game["players"].items() if p["role"] != "人狼"]
+            win_reason = f"🎉 人狼である **{target}** が追放されたため、**村人陣営の勝利**です！"
+        else:
+            winners = [n for n, p in game["players"].items() if p["role"] == "人狼"]
+            win_reason = f"😢 処刑された **{target}** は人狼ではありませんでした。**人狼陣営の勝利**です！"
+    else:
+        winners = [n for n, p in game["players"].items() if p["role"] == "人狼"]
+        win_reason = "⚖️ 投票が同票だったため誰も追放されず、人狼陣営の勝利です！"
+
+    roles_text = "🎴 **【役職公開】**\n" + "\n".join([f"・{n}: 当初({p['original_role']}) ➔ 最終({p['role']})" for n, p in game["players"].items()])
+    center_text = f"・中央の余りカード: {', '.join(game['center_cards'])}"
+    
+    if game.get("channel"):
+        await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
+    reset_game_state()
         
