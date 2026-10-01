@@ -1,6 +1,5 @@
 import discord
 import urllib.request
-import urllib.error
 import json
 import asyncio
 import os
@@ -8,7 +7,7 @@ import random
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-HTTP_HEADERS = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+HTTP_HEADERS = {"Content-Type": "application/json"}
 
 AI_CHARACTERS = [
     {"name": "アル", "desc": "20代男性。冷静な論理派。客観的なデータと事実を元に、矛盾のない綺麗な推理を組み立てる。"},
@@ -273,7 +272,7 @@ async def process_night_phase():
 
     game["phase"] = "discussion"
     if game["mode"] == "watch":
-        await game["channel"].send("☀️ **朝になりました！ `!jinro next` で議論を1ターン進めてください。**")
+        await game["channel"].send("☀ **朝になりました！ `!jinro next` で議論を1ターン進めてください。**")
     elif game["mode"] == "multi":
         await game["channel"].send("☀️ **朝になりました！議論タイム開始 (`!jinro 発言` / 投票はDMで `!vote プレイヤー名` または `!vote 平和`)**")
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
@@ -296,7 +295,6 @@ async def generate_ai_discussion(user_input=""):
         speaker_data = game["players"][speaker_name]
         current_role = speaker_data["role"]
         
-        # 役職ごとの立ち回り・戦術指示
         role_strategy_guide = ""
         if current_role == "人狼":
             role_strategy_guide = (
@@ -315,11 +313,10 @@ async def generate_ai_discussion(user_input=""):
             )
         elif current_role == "てるてる":
             role_strategy_guide = (
-                f"\n【☀️ てるてる坊主としての戦術指示】\n"
+                f"\n【☀ てるてる坊主としての戦術指示】\n"
                 f"- 自分がてるてるであることは隠しつつ、あえて怪しい言動や矛盾した発言をして、みんなから疑われて処刑されるように立ち回ってください。\n"
             )
         else:
-            # 占い師、怪盗、狩人、魔女っ子、市民などの村人陣営
             role_strategy_guide = (
                 f"\n【👤 村人陣営としての戦術指示】\n"
                 f"- あなたの夜の行動・知っている情報: {speaker_data.get('ai_knows','')}\n"
@@ -411,7 +408,7 @@ async def start_voting_phase():
         prompt = (
             f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です。\n"
             f"【これまでの議論ログ】\n" + "\n".join(game["history"][-15:]) + f"\n\n"
-            f"これまでの議論や状況を踏まえて、誰を「村から送り出す（追放する）」ために投票するか、あるいは誰も送り出さない「平和」にするかを決めてください。\n"
+            f"これまでの議論や状況を踏まえて、誰を「村から送り出す（処刑する）」ために投票するか、あるいは誰も送り出さない「平和」にするかを決めてください。\n"
             f"【回答ルール】\n"
             f"- 投票したいプレイヤーの名前（例: アル）、または「平和」のいずれか**一単語のみ**を答えてください。余計な解説や文章は一切含めないでください。"
         )
@@ -461,7 +458,7 @@ async def Tally_and_finish():
 
     if len(lynched) == 1 and game["players"][lynched[0]]["role"] == "てるてる":
         winners = [n for n, p in game["players"].items() if p["role"] == "てるてる"]
-        win_reason = f"☀️ てるてる({lynched[0]})が吊られたため、**てるてる陣営の単独勝利**です！"
+        win_reason = f"☀️ てるてる({lynched[0]})が処刑されたため、**てるてる陣営の単独勝利**です！"
     elif peace_count > (len(game["votes"]) / 2):
         wws_alive = [n for n, p in game["players"].items() if p["role"] == "人狼"]
         if not wws_alive:
@@ -475,13 +472,13 @@ async def Tally_and_finish():
         role = game["players"][target]["role"]
         if role == "人狼":
             winners = [n for n, p in game["players"].items() if p["role"] != "人狼"]
-            win_reason = f"🎉 人狼である **{target}** が追放されたため、**村人陣営の勝利**です！"
+            win_reason = f"🎉 人狼である **{target}** が処刑されたため、**村人陣営の勝利**です！"
         else:
             winners = [n for n, p in game["players"].items() if p["role"] == "人狼"]
             win_reason = f"😢 処刑された **{target}** は人狼ではありませんでした。**人狼陣営の勝利**です！"
     else:
         winners = [n for n, p in game["players"].items() if p["role"] == "人狼"]
-        win_reason = "⚖️ 投票が同票だったため誰も追放されず、人狼陣営の勝利です！"
+        win_reason = "⚖️ 投票が同票だったため誰も処刑されず、人狼陣営の勝利です！"
 
     roles_text = "🎴 **【役職公開】**\n" + "\n".join([f"・{n}: 当初({p['original_role']}) ➔ 最終({p['role']})" for n, p in game["players"].items()])
     center_text = f"・中央の余りカード: {', '.join(game['center_cards'])}"
@@ -489,3 +486,4 @@ async def Tally_and_finish():
     if game.get("channel"):
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
     reset_game_state()
+    
