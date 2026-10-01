@@ -190,6 +190,7 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
+
 async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
@@ -226,10 +227,10 @@ async def setup_game(channel, mode, human_users=None):
         await channel.send(f"🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。\n\n{member_list_text}")
         
     await process_night_phase()
-
 async def process_night_phase():
     wws = [n for n, p in game["players"].items() if p["role"] == "人狼"]
     
+    # 1. 人間のプレイヤーへのDM通知
     for n, p in game["players"].items():
         if not p["is_ai"] and p["user_obj"]:
             msg = f"🌙 **役職: 『{p['role']}』**\n"
@@ -248,6 +249,7 @@ async def process_night_phase():
             try: await p["user_obj"].send(msg)
             except: pass
 
+    # 2. AIの夜の行動（役職の入れ替わりを正確に1対1で同期処理）
     for n, p in game["players"].items():
         if p["is_ai"]:
             if p["role"] == "人狼":
@@ -260,6 +262,7 @@ async def process_night_phase():
                 t = random.choice([k for k in game["players"] if k != n])
                 my_old_role = game["players"][n]["role"]
                 target_role = game["players"][t]["role"]
+                
                 game["players"][n]["role"] = target_role
                 game["players"][t]["role"] = my_old_role
                 p["ai_knows"] = f"{t} と役職を交換しました。"
@@ -384,7 +387,7 @@ async def handle_jinro_command(message, actual_text, author_name):
 
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **投票タイム**（AIたちがこれまでの議論をもとに投票先を考えています...）")
+    await game["channel"].send("🗳️ **投票タイム**（AIたちがいままでの議論をもとに投票先を考えています...）")
     
     for n, p in game["players"].items():
         if not p["is_ai"]: continue
@@ -445,7 +448,7 @@ async def Tally_and_finish():
         role = game["players"][target]["role"]
         win_reason = f"🎉 人狼である **{target}** が処刑されたため、**村人陣営の勝利**です！" if role == "人狼" else f"😢 処刑された **{target}** は人狼ではありませんでした。**人狼陣営の勝利**です！"
     else:
-        win_reason = "⚖️️ 同票のため誰も処刑されず、人狼陣営の勝利です！"
+        win_reason = "⚖️ 同票のため誰も処刑されず、人狼陣営の勝利です！"
 
     roles_text = "🎴 **【役職公開】**\n" + "\n".join([f"・{n}: 当初({p['original_role']}) ➔ 最終({p['role']})" for n, p in game["players"].items()])
     center_text = f"・中央の余りカード: {', '.join(game['center_cards'])}"
@@ -453,3 +456,41 @@ async def Tally_and_finish():
     if game.get("channel"):
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
     reset_game_state()
+
+async def handle_chat_command(message, content, author_name):
+    parts = content.split(" ", 1)
+    target_ai = None
+    chat_text = content
+
+    if len(parts) > 1:
+        potential_name = parts[0]
+        for ai in AI_CHARACTERS:
+            if ai["name"] == potential_name:
+                target_ai = ai
+                chat_text = parts[1]
+                break
+        if not target_ai:
+            chat_text = content
+
+    if not target_ai:
+        target_ai = random.choice(AI_CHARACTERS)
+
+    prompt = (
+        f"あなたはAIキャラクターの『{target_ai['name']}』です。\n"
+        f"キャラクター設定: {target_ai['desc']}\n\n"
+        f"ユーザーの {author_name} さんからあなたへ、以下のメッセージが送られました。\n"
+        f"「{chat_text}」\n\n"
+        f"あなたのキャラクターになりきって、自然に返答してください。"
+    )
+
+    try:
+        async with message.channel.typing():
+            reply = await call_llm(prompt)
+            if reply:
+                await send_split_message(message.channel, f"💬 **{target_ai['name']}**: {reply}")
+            else:
+                await message.channel.send("❌ 返答の生成に失敗しました。")
+    except Exception as e:
+        print(f"[Chat Error]: {e}")
+        await message.channel.send("❌ エラーが発生しました。")
+    
