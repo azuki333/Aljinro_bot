@@ -19,7 +19,7 @@ AI_CHARACTERS = [
 
 ROLE_EMOJIS = {
     "人狼": "🐺", "市民": "👤", "占い師": "🔮", "怪盗": "🕵", 
-    "狩人": "🎯", "てるてる": "☀️", "魔女っ子": "🧙‍♀️", "狂人": "🤫"
+    "狩人": "🎯", "てるてる": "☀️", "魔女っ子": "🧙‍♀️️", "狂人": "🤫"
 }
 
 game = {
@@ -185,7 +185,7 @@ class RoleCountSelectView(discord.ui.View):
     @discord.ui.button(label="🚀 ゲーム開始！", style=discord.ButtonStyle.blurple, row=4)
     async def confirm(self, i: discord.Interaction, b: discord.ui.Button):
         if sum(self.roles.values()) != 7:
-            await i.response.send_message("⚠️ 合計7枚にしてください。", ephemeral=True); return
+            await i.response.send_message("⚠️️ 合計7枚にしてください。", ephemeral=True); return
         await i.response.send_message("✨ セットアップ中...", ephemeral=True)
         game["selected_roles"] = dict(self.roles)
         self.stop()
@@ -227,6 +227,7 @@ async def setup_game(channel, mode, human_users=None):
         await channel.send(f"🌌 **ゲーム開始！** 夜の時間です。DMを確認してください。\n\n{member_list_text}")
         
     await process_night_phase()
+
 async def process_night_phase():
     wws = [n for n, p in game["players"].items() if p["role"] == "人狼"]
     
@@ -285,7 +286,6 @@ async def process_night_phase():
         game["discussion_task"] = asyncio.create_task(start_5min_timer())
     else:
         await game["channel"].send("☀ **朝になりました！最初のターンを開始するには `!jinro next` と入力してください。**")
-
 async def generate_ai_discussion(user_input=""):
     if game["phase"] != "discussion": 
         return
@@ -356,14 +356,19 @@ async def generate_ai_discussion(user_input=""):
         await game["channel"].send(f"👇 **【ターン {game['turn_count']} 終了】** 次のターンに進むには `!jinro next` と入力してください。")
 
 async def handle_jinro_command(message, actual_text, author_name):
+    # !jinro next などのあとに会話文が続いている場合を考慮して切り分ける
+    text_lower = actual_text.strip().lower()
+    
+    remaining_text = actual_text
+    for cmd in ["next", "n", "次"]:
+        if text_lower == cmd or text_lower.startswith(cmd + " ") or text_lower.startswith(cmd + "　"):
+            remaining_text = actual_text[len(cmd):].strip()
+            break
+
     if game["mode"] == "solo":
-        await generate_ai_discussion(user_input=f"{author_name}: {actual_text}")
+        await generate_ai_discussion(user_input=f"{author_name}: {remaining_text}" if remaining_text else "")
     elif game["mode"] == "watch":
-        text_lower = actual_text.strip().lower()
-        if text_lower in ["next", "n", "次"]:
-            await generate_ai_discussion()
-        else:
-            await generate_ai_discussion(user_input=f"{author_name}: {actual_text}")
+        await generate_ai_discussion(user_input=f"{author_name}: {remaining_text}" if remaining_text else "")
     elif game["mode"] == "multi":
         ai_name, target_ai = find_mentioned_ai(actual_text)
         if ai_name and target_ai:
@@ -387,7 +392,7 @@ async def handle_jinro_command(message, actual_text, author_name):
 
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **投票タイム**（AIたちがいままでの議論をもとに投票先を考えています...）")
+    await game["channel"].send("🗳️ **投票タイム**（AIたちがこれまでの議論をもとに投票先を考えています...）")
     
     for n, p in game["players"].items():
         if not p["is_ai"]: continue
@@ -456,41 +461,3 @@ async def Tally_and_finish():
     if game.get("channel"):
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
     reset_game_state()
-
-async def handle_chat_command(message, content, author_name):
-    parts = content.split(" ", 1)
-    target_ai = None
-    chat_text = content
-
-    if len(parts) > 1:
-        potential_name = parts[0]
-        for ai in AI_CHARACTERS:
-            if ai["name"] == potential_name:
-                target_ai = ai
-                chat_text = parts[1]
-                break
-        if not target_ai:
-            chat_text = content
-
-    if not target_ai:
-        target_ai = random.choice(AI_CHARACTERS)
-
-    prompt = (
-        f"あなたはAIキャラクターの『{target_ai['name']}』です。\n"
-        f"キャラクター設定: {target_ai['desc']}\n\n"
-        f"ユーザーの {author_name} さんからあなたへ、以下のメッセージが送られました。\n"
-        f"「{chat_text}」\n\n"
-        f"あなたのキャラクターになりきって、自然に返答してください。"
-    )
-
-    try:
-        async with message.channel.typing():
-            reply = await call_llm(prompt)
-            if reply:
-                await send_split_message(message.channel, f"💬 **{target_ai['name']}**: {reply}")
-            else:
-                await message.channel.send("❌ 返答の生成に失敗しました。")
-    except Exception as e:
-        print(f"[Chat Error]: {e}")
-        await message.channel.send("❌ エラーが発生しました。")
-    
