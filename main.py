@@ -124,6 +124,7 @@ async def on_message(message):
                 else:
                     await message.channel.send(f"⚠️ プレイヤー「{target}」が見つかりません。")
                 return
+        return
 
     # サーバー内チャンネルでの発言処理
     if game["is_running"] and game["channel"] and message.channel.id == game["channel"].id:
@@ -132,7 +133,8 @@ async def on_message(message):
             actual_text = actual_text.replace("!jinro", "").strip()
         if actual_text:
             await handle_jinro_command(message, actual_text, message.author.display_name)
-            
+        return
+
     await bot.process_commands(message)
 
 @bot.command()
@@ -140,7 +142,7 @@ async def jinro(ctx, mode: str = None, *args):
     global game
     if mode in ["stop", "clear"]:
         if not game["is_running"]:
-            await ctx.send("⚠️ 現在進行中のゲームはありません。")
+            await ctx.send("⚠ 現在進行中のゲームはありません。")
             return
         await ctx.send("🛑 ゲームを強制終了しました。")
         reset_game_state()
@@ -154,7 +156,7 @@ async def jinro(ctx, mode: str = None, *args):
         return
 
     if game["is_running"]:
-        await ctx.send("⚠️ すでにゲームが進行中です。")
+        await ctx.send("⚠ すでにゲームが進行中です。")
         return
 
     if mode == "solo":
@@ -185,7 +187,7 @@ async def jinro(ctx, mode: str = None, *args):
 @bot.command(name="chat")
 async def chat(ctx, *, prompt: str = None):
     if not prompt:
-        await ctx.send("⚠️ 質問内容を入力してください（例: `!chat こんにちは`）")
+        await ctx.send("⚠ 質問内容を入力してください（例: `!chat こんにちは`）")
         return
     async with ctx.channel.typing():
         res = await call_llm(prompt)
@@ -199,4 +201,5 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 if TOKEN:
     bot.run(TOKEN)
 else:
-    print("⚠️ DISCORD_BOT_TOKEN が設定されていません。環境変数またはコードにトークンを設定してください。")
+    print("⚠ DISCORD_BOT_TOKEN が設定されていません。環境変数またはコードにトークンを設定してください。")
+    
