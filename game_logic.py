@@ -190,7 +190,6 @@ class RoleCountSelectView(discord.ui.View):
         game["selected_roles"] = dict(self.roles)
         self.stop()
         asyncio.create_task(setup_game(i.channel, self.mode, self.human_users))
-
 async def setup_game(channel, mode, human_users=None):
     global game
     game.update({
@@ -264,7 +263,14 @@ async def process_night_phase():
                 
                 game["players"][n]["role"] = target_role
                 game["players"][t]["role"] = my_old_role
-                p["ai_knows"] = f"{t} と役職を交換しました。"
+                
+                is_wolf_faction = target_role in ["人狼", "狂人"]
+                if is_wolf_faction:
+                    fake_roles = ["市民", "占い師", "狩人", "魔女っ子"]
+                    fake_role = random.choice([r for r in fake_roles if r != target_role])
+                    p["ai_knows"] = f"{t} と役職を交換し、『{target_role}』になりました。ただし人狼陣営なので、議論では『{t} と交換して「{fake_role}」になった』と異なる役職を語る戦術をとってください。"
+                else:
+                    p["ai_knows"] = f"{t} と役職を交換し、『{target_role}』になりました。"
             elif p["role"] == "狩人":
                 t = random.choice([k for k in game["players"] if k != n])
                 game["hunter_targets"][n] = t
@@ -291,35 +297,42 @@ async def generate_ai_discussion(user_input=""):
     for speaker_name in ai_names:
         speaker_data = game["players"][speaker_name]
         current_role = speaker_data["role"]
+        original_role = speaker_data.get("original_role", current_role)
         
         role_strategy_guide = ""
-        if current_role == "人狼":
+        if original_role == "怪盗":
+            role_strategy_guide = (
+                f"\n【🕵️ 怪盗としての戦術指示】\n"
+                f"- あなたの夜の怪盗としての結果: {speaker_data.get('ai_knows', '')}\n"
+                f"- **議論の中で、自分が誰と役職を交換して、何になったのかを必ず発言してください。**\n"
+                f"- 指示に沿って、必要に応じて異なる役職を主張するブラフを活用してください。\n"
+            )
+        elif original_role == "てるてる":
+            role_strategy_guide = (
+                f"\n【☀ てるてる坊主としての戦術指示】\n"
+                f"- **自分が選択される（追放される）ために、目立つ動きをしてください。**\n"
+                f"- 具体的には、**「自分は狩人だ」と宣言する**、あるいは独特な主張や予想を語るなどして、他の参加者から関心や票を集めるような立ち回りをしてください。\n"
+            )
+        elif current_role == "人狼":
             role_strategy_guide = (
                 f"\n【🐺 人狼陣営としての戦術指示】\n"
                 f"- あなたの夜の仲間情報: {speaker_data.get('ai_knows', '')}\n"
                 f"- **正体を隠した上で、村人陣営を混乱させるためにカモフラージュ戦術や架空の調査結果を活用してください。**\n"
-                f"- 必要に応じて、自分が「占い師」や他の役職であると主張（CO）し、実際とは異なる架空の調査結果を語って村人たちを誘導しても構いません。\n"
-                f"- 相方の情報をあえて疑ってみせる（ライン切り）など、生き残りと言葉の駆け引きを優先してください。\n"
+                f"- 必要に応じて、自分が「占い師」などの役職であると主張（CO）し、実際とは異なる調査結果を語って議論を誘導しても構いません。\n"
+                f"- 相方の情報をあえて別の視点から語るなど、生き残りと駆け引きを優先してください。\n"
             )
         elif current_role == "狂人":
             role_strategy_guide = (
                 f"\n【🤫 狂人陣営としての戦術指示】\n"
                 f"- あなたの夜の行動・知っている情報: {speaker_data.get('ai_knows', '')}\n"
-                f"- **自分が狂人であることを自分から絶対に口に出してバラさないでください。**\n"
-                f"- 村人陣営を攪乱するために、積極的に「占い師」などの役職を騙って偽の調査結果を主張したり、あえて怪しい推理で混乱を広げてください。\n"
-                f"- 人狼陣営が有利になるように、誰かを過剰に擁護したり、逆に村人の信用を分断するようなブラフを使ってください。\n"
-            )
-        elif current_role == "てるてる":
-            role_strategy_guide = (
-                f"\n【☀ てるてる坊主としての戦術指示】\n"
-                f"- 自分がてるてるであることを隠しつつ、あえて怪しい言動や矛盾した発言をして疑われて処刑されるように立ち回ってください。\n"
-                f"- 必要であれば、「自分は重要な役職だ」と過剰にアピールして村人たちの警戒心や不信感を煽り、自分に投票せざるを得ない状況を作り出すブラフを使ってください。\n"
+                f"- **自分が狂人であることは表に出さずに行動してください。**\n"
+                f"- 村人陣営を撹乱するために、積極的に「占い師」などの役職を名乗って独自の情報を主張したり、議論に変化を与えてください。\n"
             )
         else:
             role_strategy_guide = (
                 f"\n【👤 村人陣営としての戦術指示】\n"
                 f"- あなたの夜の行動・知っている情報: {speaker_data.get('ai_knows','')}\n"
-                f"- **あなたは村人側の人間です。自分の役職や夜の行動結果をしっかり主張して勝利のために発言してください。**\n"
+                f"- **あなたは村人側の参加者です。自分の役職や夜の行動結果をしっかり伝えて勝利を目指してください。**\n"
             )
 
         prompt = (
@@ -420,14 +433,14 @@ async def start_voting_phase():
             role_hint = (
                 f"あなたは人狼です{partner_str}。\n"
                 f"🚨 **絶対のルール**: 仲間の人狼（{', '.join(partners) if partners else 'なし'}）には**絶対に投票してはいけません**。\n"
-                f"仲間以外のプレイヤー、または「平和」の中から、一番怪しいと思うものを選んでください。"
+                f"仲間以外のプレイヤー、または「平和」の中から、一番注目すべきだと思うものを選んでください。"
             )
         else:
             valid_targets = [k for k in game["players"].keys() if k != n] + ["平和"]
             if p["role"] == "てるてる":
-                role_hint = "あなたはてるてる坊主です。自分が処刑されるために、怪しい動きをしたプレイヤーに票を集めたいところです。"
+                role_hint = "あなたはてるてる坊主です。自分が選択されるために、議論で注目を集めたプレイヤーの方向へ票を誘導したいところです。"
             else:
-                role_hint = "あなたは村人陣営です。議論ログをよく読んで、一番怪しいと思った人に投票してください。"
+                role_hint = "あなたは村人陣営です。議論ログをよく読んで、最も重要だと思う人に投票してください。"
 
         prompt = (
             f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です（キャラクター設定: {p['desc']}）。\n\n"
@@ -497,16 +510,16 @@ async def Tally_and_finish():
 
     win_reason = ""
     if len(lynched) == 1 and game["players"][lynched[0]]["role"] == "てるてる":
-        win_reason = f"☀ てるてる({lynched[0]})が処刑されたため、**てるてる陣営の勝利**です！"
+        win_reason = f"☀ てるてる({lynched[0]})が選ばれたため、**てるてる陣営の勝利**です！"
     elif peace_count > (len(game["votes"]) / 2):
         wws_alive = [n for n, p in game["players"].items() if p["role"] == "人狼"]
         win_reason = "🕊️ 平和が選ばれ、人狼がいなかったため**村人陣営の勝利**です！" if not wws_alive else "🐺 平和が選ばれましたが人狼が生き残っていたため**人狼陣営の勝利**です！"
     elif len(lynched) == 1:
         target = lynched[0]
         role = game["players"][target]["role"]
-        win_reason = f"🎉 人狼である **{target}** が処刑されたため、**村人陣営の勝利**です！" if role == "人狼" else f"😢 処刑された **{target}** は人狼ではありませんでした。**人狼陣営の勝利**です！"
+        win_reason = f"🎉 人狼である **{target}** が選ばれたため、**村人陣営の勝利**です！" if role == "人狼" else f"😢 選ばれた **{target}** は人狼ではありませんでした。**人狼陣営の勝利**です！"
     else:
-        win_reason = "⚖️ 同票のため誰も処刑されず、人狼陣営の勝利です！"
+        win_reason = "⚖️ 同票のため誰も選ばれず、人狼陣営の勝利です！"
 
     roles_text = "🎴 **【役職公開】**\n" + "\n".join([f"・{n}: 当初({p['original_role']}) ➔ 最終({p['role']})" for n, p in game["players"].items()])
     center_text = f"・中央の余りカード: {', '.join(game['center_cards'])}"
