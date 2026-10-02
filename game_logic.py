@@ -19,7 +19,7 @@ AI_CHARACTERS = [
 
 ROLE_EMOJIS = {
     "人狼": "🐺", "市民": "👤", "占い師": "🔮", "怪盗": "🕵", 
-    "狩人": "🎯", "てるてる": "☀️️", "魔女っ子": "🧙‍♀", "狂人": "🤫"
+    "狩人": "🎯", "てるてる": "☀", "魔女っ子": "🧙‍♀", "狂人": "🤫"
 }
 
 game = {
@@ -275,6 +275,7 @@ async def process_night_phase():
                 p["ai_knows"] = f"{t} の役職は『{game['players'][t]['role']}』でした。"
             else:
                 p["ai_knows"] = "平穏な夜の行動でした。"
+
 async def generate_ai_discussion(user_input=""):
     if game["phase"] != "discussion": 
         return
@@ -402,7 +403,6 @@ async def handle_jinro_command(message, actual_text, author_name):
         else:
             game["history"].append(f"{author_name}: {actual_text}")
             await message.add_reaction("👍")
-
 async def start_voting_phase():
     game["phase"] = "voting"
     await game["channel"].send("🗳️ **投票タイム**（AIたちはそれぞれの思惑をもとに投票先を考えています...）")
@@ -416,17 +416,25 @@ async def start_voting_phase():
         if p["role"] == "人狼":
             partners = [w for w, wp in game["players"].items() if wp["role"] == "人狼" and w != n]
             partner_str = f"（あなたの仲間の人狼: {', '.join(partners) if partners else 'なし'}）"
-            role_hint = f"あなたは人狼です{partner_str}。仲間以外のプレイヤーの中から、一番怪しいと思う人を選んで投票してください。"
-        elif p["role"] == "てるてる":
-            role_hint = "あなたはてるてる坊主です。自分が処刑されるために、怪しい動きをしたプレイヤーに票を集めたいところです。"
+            valid_targets = [k for k in game["players"].keys() if k != n and k not in partners] + ["平和"]
+            role_hint = (
+                f"あなたは人狼です{partner_str}。\n"
+                f"🚨 **絶対のルール**: 仲間の人狼（{', '.join(partners) if partners else 'なし'}）には**絶対に投票してはいけません**。\n"
+                f"仲間以外のプレイヤー、または「平和」の中から、一番怪しいと思うものを選んでください。"
+            )
         else:
-            role_hint = "あなたは村人陣営です。議論ログをよく読んで、一番怪しいと思った人に投票してください。"
+            valid_targets = [k for k in game["players"].keys() if k != n] + ["平和"]
+            if p["role"] == "てるてる":
+                role_hint = "あなたはてるてる坊主です。自分が処刑されるために、怪しい動きをしたプレイヤーに票を集めたいところです。"
+            else:
+                role_hint = "あなたは村人陣営です。議論ログをよく読んで、一番怪しいと思った人に投票してください。"
 
         prompt = (
             f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です（キャラクター設定: {p['desc']}）。\n\n"
             f"【これまでの議論ログ】\n{discussion_log}\n\n"
             f"【あなたの立場と指針】\n{role_hint}\n\n"
-            f"周りの意見に流されず、あなたのキャラクターや立場に合わせて、自分以外のプレイヤーの名前、または「平和」の中から投票先を選んでください。\n"
+            f"【投票可能な候補】\n{', '.join(valid_targets)}\n\n"
+            f"周りの意見に流されず、上記の候補の中から投票先を選んでください。\n"
             f"【回答ルール】投票したいプレイヤーの名前、または「平和」のいずれか**一単語のみ**を答えてください。"
         )
         
@@ -441,21 +449,22 @@ async def start_voting_phase():
                 else:
                     for k in game["players"].keys():
                         if k in cleaned_reply and k != n:
+                            if p["role"] == "人狼":
+                                partners = [w for w, wp in game["players"].items() if wp["role"] == "人狼" and w != n]
+                                if k in partners:
+                                    continue
                             voted_target = k
                             break
                 
-                if not voted_target or voted_target == n:
-                    other_choices = [k for k in game["players"].keys() if k != n] + ["平和"]
-                    voted_target = random.choice(other_choices)
+                if not voted_target or voted_target == n or voted_target not in valid_targets:
+                    voted_target = random.choice(valid_targets)
                 
                 game["votes"][n] = voted_target
             else:
-                other_choices = [k for k in game["players"].keys() if k != n] + ["平和"]
-                game["votes"][n] = random.choice(other_choices)
+                game["votes"][n] = random.choice(valid_targets)
         except Exception as e:
             print(f"[AI投票エラー ({n})]: {e}")
-            other_choices = [k for k in game["players"].keys() if k != n] + ["平和"]
-            game["votes"][n] = random.choice(other_choices)
+            game["votes"][n] = random.choice(valid_targets)
 
     human_players = [n for n, p in game["players"].items() if not p["is_ai"]]
     if len(human_players) == 0:
@@ -488,7 +497,7 @@ async def Tally_and_finish():
 
     win_reason = ""
     if len(lynched) == 1 and game["players"][lynched[0]]["role"] == "てるてる":
-        win_reason = f"☀️ てるてる({lynched[0]})が処刑されたため、**てるてる陣営の勝利**です！"
+        win_reason = f"☀ てるてる({lynched[0]})が処刑されたため、**てるてる陣営の勝利**です！"
     elif peace_count > (len(game["votes"]) / 2):
         wws_alive = [n for n, p in game["players"].items() if p["role"] == "人狼"]
         win_reason = "🕊️ 平和が選ばれ、人狼がいなかったため**村人陣営の勝利**です！" if not wws_alive else "🐺 平和が選ばれましたが人狼が生き残っていたため**人狼陣営の勝利**です！"
@@ -505,4 +514,3 @@ async def Tally_and_finish():
     if game.get("channel"):
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
     reset_game_state()
-                
