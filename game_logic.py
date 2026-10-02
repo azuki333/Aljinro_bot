@@ -536,22 +536,28 @@ async def Tally_and_finish():
     if game.get("channel"):
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
 
-        # === ここから感想戦（AIたちの振り返り発言） ===
+        # === 安全な表現に調整した感想戦 ===
         await asyncio.sleep(2)
-        await game["channel"].send("茶 **【感想戦】** 参加したAIたちが今回のゲームを振り返ります...")
+        await game["channel"].send("💬 **【感想戦】** 実際の議論や結果を振り返って、AIたちがアフタートークを始めます...")
         
+        discussion_log = "\n".join(game["history"]) if game["history"] else "（議論はあまり行われませんでした）"
         ai_names = [n for n, p in game["players"].items() if p["is_ai"]]
+        
         for ai_name in ai_names:
             p_data = game["players"][ai_name]
             prompt = (
-                f"ワンナイト人狼のゲームが終了しました。あなたは『{ai_name}』（キャラクター設定: {p_data['desc']}）でした。\n"
-                f"あなたの本当の最初の役職は『{p_data['original_role']}』で、最終的な役職は『{p_data['role']}』でした。\n"
-                f"夜の秘密の行動結果や、自分の正体を隠してどう立ち回ったかを踏まえて、今回のゲームの感想や反省、他の人へのコメントをキャラクターになりきって短く1〜2文で語ってください。"
+                f"ワンナイト人狼のゲームが終了し、勝敗と本当の役職が公開されました。\n"
+                f"あなたは『{ai_name}』（キャラクター設定: {p_data['desc']}）でした。\n"
+                f"- あなたの役職: 当初({p_data['original_role']}) ➔ 最終({p_data['role']})\n\n"
+                f"【これまでの実際の議論ログ】\n{discussion_log}\n\n"
+                f"上記の**議論のやり取りや他の人の発言、そして今回の役職公開の結果を踏まえて**、\n"
+                f"「誰のどの発言に惑わされたか」「誰を信じて推理したか、あるいはうまく正体を隠して立ち回れたか」などを、\n"
+                f"実際の議論の具体的な内容に触れながら、キャラクターになりきって短く1〜2文で感想を語ってください。"
             )
             try:
                 reply = await call_llm(prompt)
                 if reply:
-                    await send_split_message(game["channel"], f"💬 **{ai_name}の感想**: {reply}")
+                    await send_split_message(game["channel"], f"🗣️ **{ai_name}の感想**: {reply}")
                     await asyncio.sleep(1.2)
             except Exception as e:
                 print(f"[感想戦エラー ({ai_name})]: {e}")
