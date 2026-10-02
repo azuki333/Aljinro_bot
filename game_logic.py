@@ -498,7 +498,6 @@ async def start_voting_phase():
 
 async def Tally_and_finish():
     game["phase"] = "ended"
-    game["is_running"] = False
     if game.get("discussion_task"): 
         game["discussion_task"].cancel()
 
@@ -536,4 +535,25 @@ async def Tally_and_finish():
     
     if game.get("channel"):
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
+
+        # === ここから感想戦（AIたちの振り返り発言） ===
+        await asyncio.sleep(2)
+        await game["channel"].send("茶 **【感想戦】** 参加したAIたちが今回のゲームを振り返ります...")
+        
+        ai_names = [n for n, p in game["players"].items() if p["is_ai"]]
+        for ai_name in ai_names:
+            p_data = game["players"][ai_name]
+            prompt = (
+                f"ワンナイト人狼のゲームが終了しました。あなたは『{ai_name}』（キャラクター設定: {p_data['desc']}）でした。\n"
+                f"あなたの本当の最初の役職は『{p_data['original_role']}』で、最終的な役職は『{p_data['role']}』でした。\n"
+                f"夜の秘密の行動結果や、自分の正体を隠してどう立ち回ったかを踏まえて、今回のゲームの感想や反省、他の人へのコメントをキャラクターになりきって短く1〜2文で語ってください。"
+            )
+            try:
+                reply = await call_llm(prompt)
+                if reply:
+                    await send_split_message(game["channel"], f"💬 **{ai_name}の感想**: {reply}")
+                    await asyncio.sleep(1.2)
+            except Exception as e:
+                print(f"[感想戦エラー ({ai_name})]: {e}")
+
     reset_game_state()
