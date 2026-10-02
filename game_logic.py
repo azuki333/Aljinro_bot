@@ -347,7 +347,6 @@ async def generate_ai_discussion(user_input=""):
 async def handle_jinro_command(message, actual_text, author_name):
     text_lower = actual_text.strip().lower()
     
-    # ⚡【完全確実な強制リセット】AIを通さず、どんなフェーズでも即座にリセット
     if text_lower in ["clear", "reset", "stop", "abort", "終了", "リセット"]:
         reset_game_state()
         await message.channel.send("🧹 **ゲームを強制リセットしました。** 新しくゲームを始めるにはセットアップを行ってください。")
@@ -401,30 +400,59 @@ async def handle_jinro_command(message, actual_text, author_name):
 
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **投票タイム**（AIたちはこれまでの議論をもとに投票先を考えています...）")
+    await game["channel"].send("🗳️ **投票タイム**（AIたちはそれぞれの思惑をもとに投票先を考えています...）")
     
     # 議論の履歴をテキストにまとめる
     discussion_log = "\n".join(game["history"]) if game["history"] else "（議論はあまり行われませんでした）"
 
     for n, p in game["players"].items():
         if not p["is_ai"]: continue
+        
+        # 役職ごとの投票ヒント（人狼が仲間を避けて村人を狙う配慮を含む）
+        role_hint = ""
+        if p["role"] == "人狼":
+            partners = [w for w, wp in game["players"].items() if wp["role"] == "人狼" and w != n]
+            partner_str = f"（あなたの仲間の人狼: {', '.join(partners) if partners else 'なし'}）"
+            role_hint = f"あなたは人狼です{partner_str}。仲間以外のプレイヤーの中から、一番怪しいと思う人を選んで投票してください。"
+        elif p["role"] == "てるてる":
+            role_hint = "あなたはてるてる坊主です。自分が処刑されるために、怪しい動きをしたプレイヤーに票を集めたいところです。"
+        else:
+            role_hint = "あなたは村人陣営です。議論ログをよく読んで、一番怪しいと思った人に投票してください。"
+
         prompt = (
-            f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です。\n\n"
+            f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です（キャラクター設定: {p['desc']}）。\n\n"
             f"【これまでの議論ログ】\n{discussion_log}\n\n"
-            f"上記の議論や状況を踏まえて、誰を処刑するために投票するか、あるいは誰も処刑したくない場合は「平和」にするかを決めてください。\n"
+            f"【あなたの立場と指針】\n{role_hint}\n\n"
+            f"周りの意見に流されず、あなたのキャラクターや立場に合わせて、自分以外のプレイヤーの名前、または「平和」の中から投票先を選んでください。\n"
             f"【回答ルール】投票したいプレイヤーの名前、または「平和」のいずれか**一単語のみ**を答えてください。"
         )
+        
         try:
             reply = await call_llm(prompt)
             if reply:
                 cleaned_reply = reply.strip().replace("「", "").replace("」", "").replace("。", "")
-                voted_target = "平和" if "平和" in cleaned_reply else next((k for k in game["players"].keys() if k in cleaned_reply), random.choice([k for k in game["players"] if k != n]))
+                
+                voted_target = None
+                if "平和" in cleaned_reply:
+                    voted_target = "平和"
+                else:
+                    for k in game["players"].keys():
+                        if k in cleaned_reply and k != n:
+                            voted_target = k
+                            break
+                
+                if not voted_target or voted_target == n:
+                    other_choices = [k for k in game["players"].keys() if k != n] + ["平和"]
+                    voted_target = random.choice(other_choices)
+                
                 game["votes"][n] = voted_target
             else:
-                game["votes"][n] = random.choice([k for k in game["players"] if k != n])
+                other_choices = [k for k in game["players"].keys() if k != n] + ["平和"]
+                game["votes"][n] = random.choice(other_choices)
         except Exception as e:
             print(f"[AI投票エラー ({n})]: {e}")
-            game["votes"][n] = random.choice([k for k in game["players"] if k != n])
+            other_choices = [k for k in game["players"].keys() if k != n] + ["平和"]
+            game["votes"][n] = random.choice(other_choices)
 
     human_players = [n for n, p in game["players"].items() if not p["is_ai"]]
     if len(human_players) == 0:
