@@ -347,7 +347,7 @@ async def generate_ai_discussion(user_input=""):
 async def handle_jinro_command(message, actual_text, author_name):
     text_lower = actual_text.strip().lower()
     
-    # ⚡【完全確実な強制リセット】AIを通사ず、どんなフェーズでも即座にリセット
+    # ⚡【完全確実な強制リセット】AIを通さず、どんなフェーズでも即座にリセット
     if text_lower in ["clear", "reset", "stop", "abort", "終了", "リセット"]:
         reset_game_state()
         await message.channel.send("🧹 **ゲームを強制リセットしました。** 新しくゲームを始めるにはセットアップを行ってください。")
@@ -401,13 +401,17 @@ async def handle_jinro_command(message, actual_text, author_name):
 
 async def start_voting_phase():
     game["phase"] = "voting"
-    await game["channel"].send("🗳️ **投票タイム**（AIたちがこれまでの議論をもとに投票先を考えています...）")
+    await game["channel"].send("🗳️ **投票タイム**（AIたちはこれまでの議論をもとに投票先を考えています...）")
     
+    # 議論の履歴をテキストにまとめる
+    discussion_log = "\n".join(game["history"]) if game["history"] else "（議論はあまり行われませんでした）"
+
     for n, p in game["players"].items():
         if not p["is_ai"]: continue
         prompt = (
-            f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です。\n"
-            f"これまでの議論や状況を踏まえて、誰を処刑するために投票するか、あるいは「平和」にするかを決めてください。\n"
+            f"ワンナイト人狼の投票フェーズです。あなたは『{n}』です。\n\n"
+            f"【これまでの議論ログ】\n{discussion_log}\n\n"
+            f"上記の議論や状況を踏まえて、誰を処刑するために投票するか、あるいは誰も処刑したくない場合は「平和」にするかを決めてください。\n"
             f"【回答ルール】投票したいプレイヤーの名前、または「平和」のいずれか**一単語のみ**を答えてください。"
         )
         try:
