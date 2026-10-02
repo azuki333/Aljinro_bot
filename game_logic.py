@@ -534,10 +534,11 @@ async def Tally_and_finish():
     center_text = f"・中央の余りカード: {', '.join(game['center_cards'])}"
     
     if game.get("channel"):
+        # 試合結果と役職公開を送信
         await game["channel"].send(f"{win_reason}\n\n{roles_text}\n{center_text}")
 
-        # === 安全な表現に調整した感想戦 ===
-        await asyncio.sleep(2)
+        # 感想戦へつなげる
+        await asyncio.sleep(1.5)
         await game["channel"].send("💬 **【感想戦】** 実際の議論や結果を振り返って、AIたちがアフタートークを始めます...")
         
         discussion_log = "\n".join(game["history"]) if game["history"] else "（議論はあまり行われませんでした）"
@@ -561,5 +562,9 @@ async def Tally_and_finish():
                     await asyncio.sleep(1.2)
             except Exception as e:
                 print(f"[感想戦エラー ({ai_name})]: {e}")
+
+        # 🏆 感想戦が終わったあとにプログラムから「お疲れ様でした！」を送信
+        await asyncio.sleep(1.5)
+        await game["channel"].send("👏 **試合終了、お疲れ様でした！**")
 
     reset_game_state()
